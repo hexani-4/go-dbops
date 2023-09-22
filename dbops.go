@@ -91,7 +91,7 @@ func NameToAlias(name string) (string, error) {
 func FormatUInputTable(table string) (string, string, error) {
 	split_table := strings.Split(table, ".")
 	fmt.Println(table, split_table)
-	if len(split_table) >= 2 { 
+	if len(split_table) > 2 { 
 		return "", "", ErrInvalidTable 
 
 	} else if len(split_table) == 2 {
@@ -524,7 +524,7 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 	mem_tablename := name_alias + "_" + tablename
 
 	var old_mem_length int
-	if err := Mem.Get(&old_mem_length, fmt.Sprintf("SELECT MAX(ROWID) FROM %s LIMIT 1;", mem_tablename)); err != nil {return 0, err}
+	if err := Mem.Get(&old_mem_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", mem_tablename)); err != nil {return 0, err}
 
 	if index < 0 {
 		index = old_mem_length
@@ -538,7 +538,7 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 
 	if count < 0 {
 		var source_length int
-		if err := db.Get(&source_length, fmt.Sprintf("SELECT MAX(ROWID) FROM %s LIMIT 1;", tablename)); err != nil {return 0, err}
+		if err := db.Get(&source_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", tablename)); err != nil {return 0, err}
 		count = source_length - index
 		fmt.Printf("loadIntoMemory() -- count < 0; interpreted as height of %s - index (= %d )\n", table, count)
 	}
@@ -558,7 +558,7 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 	if err != nil { return 0, err }
 
 	var mem_length int
-	err = Mem.Get(&mem_length, fmt.Sprintf("SELECT MAX(ROWID) FROM %s LIMIT 1;", mem_tablename))
+	err = Mem.Get(&mem_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", mem_tablename))
 	retrieved_count := mem_length - old_mem_length
 	if err != nil { return retrieved_count, err }
 
@@ -1014,7 +1014,7 @@ func GetDataByIndex(table string, order_clause string, index int, count int, row
 
 	if (index < 0) || (count < 0){
 		var source_length int
-		if err := db.Get(&source_length, fmt.Sprintf("SELECT MAX(ROWID) FROM mian.%s LIMIT 1;", tablename)); err != nil {return row_slice, err}
+		if err := db.Get(&source_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", tablename)); err != nil {return row_slice, err}
 
 		if index < 0 {
 			index = source_length - count
