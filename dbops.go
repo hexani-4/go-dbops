@@ -90,12 +90,18 @@ func NameToAlias(name string) (string, error) {
 //Here to save me the hassle of writing it out each time, use it if you like. :/ 
 func FormatUInputTable(table string) (string, string, error) {
 	split_table := strings.Split(table, ".")
-	fmt.Println(table, split_table)
+	fmt.Println(table, split_table, len(split_table))
 	if len(split_table) > 2 { 
 		return "", "", ErrInvalidTable 
 
 	} else if len(split_table) == 2 {
-		return split_table[0], split_table[1], nil
+		for _, source := range data_sources{
+			if ((split_table[0] == source.Alias) || (split_table[0] == source.Path)) && slices.Contains(source.Tablenames, split_table[1]){
+				return split_table[0], split_table[1], nil
+			}
+		}
+
+		return split_table[0], split_table[1], ErrUnknownTableName
 	}
 
 	for _, source := range data_sources {
