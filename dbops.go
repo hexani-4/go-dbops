@@ -756,12 +756,14 @@ func ExtendDataSource(name string, structure Db_structure) error {
 		return false
 	}() { return ErrUnknownSourceName }
 
+	fmt.Println(structure)
 	for r_tablename, r_table := range reserved_structure {
 		_, exists := structure[r_tablename] 
 		if exists { return ErrIsReserved } //would mean that a reserved tablename was requested
 
 		structure[r_tablename] = r_table
 	}
+	fmt.Println(structure)
 
 	tablenames := make([]string, len(structure))
 	i := 0
@@ -788,11 +790,14 @@ func ExtendDataSource(name string, structure Db_structure) error {
 				
 				if form_r_column == form_column { return ErrIsReserved } //would mean that a reserved column name was requested
 			}
+			
+			table.Columns = append(table.Columns, r_column)
 		}
 
 		tablenames[i] = tablename
 		i++
 	}
+	fmt.Println(structure)
 
 
 	db, err := sqlx.Connect("sqlite3", path)
