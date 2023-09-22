@@ -613,7 +613,7 @@ func AddDataSource(path string, alias string) error {
 		}
 	}
 
-
+	
 	_, err := os.Stat(path)
 	if err != nil { return err }
 
@@ -628,6 +628,7 @@ func AddDataSource(path string, alias string) error {
 	structure, err := structureFromDb(db)
 	if err != nil { return err }
 
+	fmt.Println("1", structure)
 	for r_tablename, r_table := range reserved_structure {
 		
 		table, exists := structure[r_tablename]
@@ -640,7 +641,15 @@ func AddDataSource(path string, alias string) error {
 		}
 	}
 
-	for _, table := range structure {
+	for _, statement := range reserved_structure.tableCreateStatements(false) {
+		_, err = db.Exec(statement)
+		if err != nil { return err }
+	}
+
+	fmt.Println("3", structure)
+
+	for tablename, table := range structure {
+		r_column_iterator:
 		for _, r_column := range reserved_columns{
 
 			semiform_r_column := strings.FieldsFunc(r_column, quoteSplit)
@@ -661,8 +670,21 @@ func AddDataSource(path string, alias string) error {
 					form_column = semiform_column[0]
 				}
 				
-				if form_r_column == form_column { return ErrIsReserved } //would mean that a reserved column name was requested
+				if form_r_column == form_column { //would mean that a reserved column name was present
+					if !reflect.DeepEqual(r_column, column) { // = it was definitelly not created by dbops
+						return ErrIsReserved
+					} else {
+						continue r_column_iterator //it was probably created by dbops, will leech off of it
+					}
+				} 
 			}
+
+			_, err = db.Exec(fmt.Sprintf("ALTER TABLE main.%s ADD COLUMN %s", tablename, r_column))
+			if err != nil { return err }
+			fmt.Println("3.3", table.Columns)
+			table.Columns = append(table.Columns, r_column)
+
+			fmt.Println("3.7", table.Columns)
 		}
 	}
 
@@ -810,7 +832,7 @@ func ExtendDataSource(name string, structure Db_structure) error {
 		if err != nil { return err }
 
 		tablename, table := tablenames[e], structure[tablenames[e]]  //insert nil row
-			nil_statement := "INSERT INTO " + tablename + " VALUES("
+			/*nil_statement := "INSERT INTO " + tablename + " VALUES("
 			for _, col := range table.Columns {
 				switch strings.Split(col, " ")[1]{
 				case "INTEGER":
@@ -828,7 +850,7 @@ func ExtendDataSource(name string, structure Db_structure) error {
 	
 			nil_statement = nil_statement[:len(nil_statement) - 2] + ");"
 			_, err = db.Exec(nil_statement)
-			if (err != nil) { return err }
+			if (err != nil) { return err }*/
 
 		if Mem != nil {
 			create_statement := "CREATE TABLE " + alias + "_" + tablename //modified .tableCreateStatements()
@@ -842,11 +864,12 @@ func ExtendDataSource(name string, structure Db_structure) error {
 			_, err := Mem.Exec(create_statement)
 			if err != nil { return err }
 
-			_, err = Mem.Exec(nil_statement)
-			if err != nil { return err }
+			/*_, err = Mem.Exec(nil_statement)
+			if err != nil { return err }*/
 			}
 
 		data_sources[ds_index].Tablenames = append(data_sources[ds_index].Tablenames, tablenames[e])
+
 	}
 
 	return nil
