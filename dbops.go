@@ -649,10 +649,10 @@ func AddDataSource(path string, alias string) error {
 		fmt.Println(exists, r_tablename, table, r_table)
 
 		if exists {
-			/*ex_r_table := *r_table
-			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...) //because we have to check the reserved table with all reserved columns added*/
 
-			if !reflect.DeepEqual(table, r_table) {
+			fmt.Println("comparing -", *table, *r_table)
+
+			if !reflect.DeepEqual(*table, *r_table) {
 
 				fmt.Println("dbops - non-compatible reserved table detected")
 				return ErrIsReserved
