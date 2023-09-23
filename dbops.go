@@ -646,7 +646,7 @@ func AddDataSource(path string, alias string) error {
 		
 		fmt.Println("real -", structure)
 		fmt.Println("rese -", reserved_structure)
-		fmt.Println(r_tablename)
+		fmt.Println("rtabl -", r_tablename)
 		table, exists := structure[r_tablename]
 		fmt.Println(table, exists)
 
