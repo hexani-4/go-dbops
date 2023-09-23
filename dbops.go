@@ -144,7 +144,6 @@ func structureFromDb(db *sqlx.DB) (Db_structure, error) {
 		datatype string
 		allows_null bool
 		default_value sql.NullString
-		default_string string
 		pk bool
 	}
 	var structure Db_structure = make(Db_structure)
@@ -165,9 +164,14 @@ func structureFromDb(db *sqlx.DB) (Db_structure, error) {
 		
 			err := cols.Scan(&column.index, &column.name, &column.datatype, &column.allows_null, &column.default_value, &column.pk)
 			if err != nil {log.Fatalln(err)}
-			column.default_string = column.default_value.String
 
-			table_structure.Columns = append(table_structure.Columns, column.name + " " + column.datatype)
+			var extra_props string  
+
+			if column.default_value.Valid {
+				extra_props += " DEFAULT " + column.default_value.String
+			}
+
+			table_structure.Columns = append(table_structure.Columns, column.name + " " + column.datatype + extra_props)
 			if (column.pk){ table_structure.Primary_key = append(table_structure.Primary_key, column.name)}
 			}
 		structure[tablename] = &table_structure
@@ -635,19 +639,32 @@ func AddDataSource(path string, alias string) error {
 	if err != nil { return err }
 
 	fmt.Println("1", structure)
+
+	toBeAdded_structure := make(Db_structure)
+	
 	for r_tablename, r_table := range reserved_structure {
 		
 		table, exists := structure[r_tablename]
+
 		if exists {
+			/*ex_r_table := *r_table
+			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...) //because we have to check the reserved table with all reserved columns added*/
+
+			fmt.Println(table, r_table)
 			if !reflect.DeepEqual(table, r_table) {
+
+				fmt.Println("dbops - non-compatible reserved table detected")
 				return ErrIsReserved
 			}
+
 		} else {
+
+			toBeAdded_structure[r_tablename] = r_table
 			structure[r_tablename] = r_table
 		}
 	}
 
-	for _, statement := range reserved_structure.tableCreateStatements(false) {
+	for _, statement := range toBeAdded_structure.tableCreateStatements(false) {
 		_, err = db.Exec(statement)
 		if err != nil { return err }
 	}
@@ -678,6 +695,7 @@ func AddDataSource(path string, alias string) error {
 				
 				if form_r_column == form_column { //would mean that a reserved column name was present
 					if !reflect.DeepEqual(r_column, column) { // = it was definitelly not created by dbops
+						fmt.Println("dbops - non-compatible reserved column detected")
 						return ErrIsReserved
 					} else {
 						continue r_column_iterator //it was probably created by dbops, will leech off of it
