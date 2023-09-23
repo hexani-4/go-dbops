@@ -60,7 +60,7 @@ var deleteHistory []*deleteHistItem
 var Mem *sqlx.DB
 
 var reserved_structure = Db_structure{"database_log": &Db_table{[]string{"key TEXT", "value TEXT"}, []string{"key"}}}
-var reserved_columns = []string{"DeleteState INTEGER DEFAULT 0"} // these are also forced in reserved structures
+var reserved_columns = []string{"DeleteState INTEGER DEFAULT 0 NOT NULL"} // these are also forced in reserved structures
 
 type DataSource struct{
 	Path string //May be used as a "name". Outdated versions will be <filename>_<unix_millis> (<DD-MM-YYYY>).db
@@ -169,6 +169,9 @@ func structureFromDb(db *sqlx.DB) (Db_structure, error) {
 
 			if column.default_value.Valid {
 				extra_props += " DEFAULT " + column.default_value.String
+			}
+			if column.allows_null {
+				extra_props += " NOT NULL"
 			}
 
 			table_structure.Columns = append(table_structure.Columns, column.name + " " + column.datatype + extra_props)
