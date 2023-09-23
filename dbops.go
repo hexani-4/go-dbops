@@ -1025,13 +1025,13 @@ func GetDataByIndex(table string, order_clause string, index int, count int, row
 	var db *sqlx.DB
 	if Mem != nil {
 		
-		name_alias, _ := NameToAlias(name) //don't care about err since FormatUInputTable() is called before this
+		name_alias, _ := NameToAlias(name) //don't care about err since FormatUInputTable() is called before this 
 		tablename = name_alias + "_" + tablename
 		db = Mem
 
 	} else {
 
-		path, _ := NameToPath(name) //don't care about err since FormatUInputTable() is called before this
+		path, _ := NameToPath(name) //don't care about err since FormatUInputTable() is called before this 
 		db, err = sqlx.Connect("sqlite3", path)
 		if err != nil { return row_slice, err }
 		defer db.Close()
