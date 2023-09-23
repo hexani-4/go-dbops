@@ -806,7 +806,10 @@ func ExtendDataSource(name string, structure Db_structure) error {
 	fmt.Println(structure)
 	for r_tablename, r_table := range reserved_structure {
 		_, exists := structure[r_tablename] 
-		if exists { return ErrIsReserved } //would mean that a reserved tablename was requested
+		if exists { 
+			fmt.Println("dbops - reserved tablename requested -", r_tablename)
+			return ErrIsReserved //would mean that a reserved tablename was requested
+		} 
 
 		structure[r_tablename] = r_table
 	}
@@ -835,7 +838,10 @@ func ExtendDataSource(name string, structure Db_structure) error {
 					form_column = semiform_column[0]
 				}
 				
-				if form_r_column == form_column { return ErrIsReserved } //would mean that a reserved column name was requested
+				if form_r_column == form_column { 
+					fmt.Println("dbops - reserved column requested -", form_column)
+					return ErrIsReserved //would mean that a reserved column name was requested
+				}
 			}
 
 			table.Columns = append(table.Columns, r_column)
