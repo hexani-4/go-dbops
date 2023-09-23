@@ -1069,7 +1069,7 @@ func GetDataByIndex(table string, order_clause string, index int, count int, row
 	return row_slice, nil
 }
 
-//DRY thing, too lazy to copy the thing each time
+//DRY thing, too lazy to copy the thing each time 
 //returns unpacked_values (in correct order), the clause string ("WHERE x=? AND (y=? OR y=?)")
 func makeConditionClause(in []Table_value) ([]any, string) {
 	var unpacked_values []any
