@@ -776,7 +776,7 @@ func quoteSplit(r rune) bool {
 }
 
 
-
+//TODO: consider checking if things in structure already exist in the database
 //Attempts to add all of <structure> into <name>. Will return error (from sqlx) if that tablename already exists. 
 //If Memory is enabled, will try to also add <structure> to it (as '<alias_from_name>_<tablename>'). 
 func ExtendDataSource(name string, structure Db_structure) error {
