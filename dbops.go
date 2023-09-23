@@ -650,7 +650,7 @@ func AddDataSource(path string, alias string) error {
 
 		if exists {
 
-			fmt.Println("comparing -", *table, *r_table)
+			fmt.Println("comparing  -", *table, *r_table)
 
 			if !reflect.DeepEqual(*table, *r_table) {
 
