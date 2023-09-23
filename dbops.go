@@ -643,6 +643,7 @@ func AddDataSource(path string, alias string) error {
 	for r_tablename, r_table := range reserved_structure {
 		
 		table, exists := structure[r_tablename]
+		fmt.Println(exists, r_tablename, table, r_table)
 
 		if exists {
 			/*ex_r_table := *r_table

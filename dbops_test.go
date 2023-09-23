@@ -23,7 +23,9 @@ func TestAddTestDelete(t *testing.T) {
 	if err != nil { t.Fatalf(err.Error()) }
 
 	fmt.Println("ExtendDataSource")
-	test_structure := dbops.Db_structure{"settings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}}}
+	test_structure := dbops.Db_structure{"settings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
+ 										 "sure": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
+										}
 	err = dbops.ExtendDataSource("db", test_structure)
 	if err != nil { t.Fatalf(err.Error()) }
 
@@ -42,7 +44,15 @@ func TestAddTestDelete(t *testing.T) {
 	err = dbops.ExtendDataSource("db", test_structure2)
 	if err != nil { t.Fatalf(err.Error()) }
 
-	time.Sleep(1 * time.Second)
+	fmt.Println("RemoveDataSource")
+	err = dbops.RemoveDataSource("db")
+	if err != nil { t.Fatalf(err.Error()) }
+
+	fmt.Println("AddDataSource")
+	err = dbops.AddDataSource(db_path, "db")
+	if err != nil { t.Fatalf(err.Error()) }
+
+	time.Sleep(10 * time.Second)
 
 	fmt.Println("DeleteDataSource")
 	err = dbops.DeleteDataSource("db")
