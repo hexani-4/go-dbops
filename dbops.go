@@ -638,23 +638,16 @@ func AddDataSource(path string, alias string) error {
 	structure, err := structureFromDb(db)
 	if err != nil { return err }
 
-	fmt.Println("1", structure)
-
 	toBeAdded_structure := make(Db_structure)
 	
 	for r_tablename, r_table := range reserved_structure {
 		
-		fmt.Println("real -", structure)
-		fmt.Println("rese -", reserved_structure)
-		fmt.Println("rtabl -", r_tablename)
 		table, exists := structure[r_tablename]
-		fmt.Println(table, exists)
 
 		if exists {
 			/*ex_r_table := *r_table
 			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...) //because we have to check the reserved table with all reserved columns added*/
 
-			fmt.Println(table, r_table)
 			if !reflect.DeepEqual(table, r_table) {
 
 				fmt.Println("dbops - non-compatible reserved table detected")
@@ -672,8 +665,6 @@ func AddDataSource(path string, alias string) error {
 		_, err = db.Exec(statement)
 		if err != nil { return err }
 	}
-
-	fmt.Println("3", structure)
 
 	for tablename, table := range structure {
 		r_column_iterator:
@@ -709,10 +700,7 @@ func AddDataSource(path string, alias string) error {
 
 			_, err = db.Exec(fmt.Sprintf("ALTER TABLE main.%s ADD COLUMN %s", tablename, r_column))
 			if err != nil { return err }
-			fmt.Println("3.3", table.Columns)
 			table.Columns = append(table.Columns, r_column)
-
-			fmt.Println("3.7", table.Columns)
 		}
 	}
 
@@ -807,17 +795,13 @@ func ExtendDataSource(name string, structure Db_structure) error {
 		return false
 	}() { return ErrUnknownSourceName }
 
-	fmt.Println(structure)
-	for r_tablename, r_table := range reserved_structure {
+	for r_tablename := range reserved_structure {
 		_, exists := structure[r_tablename] 
 		if exists { 
 			fmt.Println("dbops - reserved tablename requested -", r_tablename)
 			return ErrIsReserved //would mean that a reserved tablename was requested
 		} 
-
-		structure[r_tablename] = r_table
 	}
-	fmt.Println(structure)
 
 	tablenames := make([]string, len(structure))
 	i := 0
@@ -842,19 +826,17 @@ func ExtendDataSource(name string, structure Db_structure) error {
 					form_column = semiform_column[0]
 				}
 				
-				if form_r_column == form_column { 
+				if (form_r_column == form_column) && !reflect.DeepEqual(column, r_column)  { 
 					fmt.Println("dbops - reserved column requested -", form_column)
 					return ErrIsReserved //would mean that a reserved column name was requested
 				}
 			}
-
-			table.Columns = append(table.Columns, r_column)
 		}
+		table.Columns = append(table.Columns, reserved_columns...)
 
 		tablenames[i] = tablename
 		i++
 	}
-	fmt.Println(structure)
 
 
 	db, err := sqlx.Connect("sqlite3", path)
