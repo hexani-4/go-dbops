@@ -646,13 +646,12 @@ func AddDataSource(path string, alias string) error {
 	for r_tablename, r_table := range reserved_structure {
 		
 		table, exists := structure[r_tablename]
-		fmt.Println(exists, r_tablename, table, r_table)
 
 		if exists {
+			ex_r_table := *r_table
+			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
 
-			fmt.Println("comparing  -", *table, *r_table)
-
-			if !reflect.DeepEqual(*table, *r_table) {
+			if !reflect.DeepEqual(*table, ex_r_table) {
 
 				fmt.Println("dbops - non-compatible reserved table detected")
 				return ErrIsReserved
@@ -660,8 +659,10 @@ func AddDataSource(path string, alias string) error {
 
 		} else {
 
-			toBeAdded_structure[r_tablename] = r_table
-			structure[r_tablename] = r_table
+			r_table_copy := *r_table
+
+			toBeAdded_structure[r_tablename] = &r_table_copy
+			structure[r_tablename] = &r_table_copy
 		}
 	}
 
