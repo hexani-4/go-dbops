@@ -40,7 +40,7 @@ var ErrFatalSaveException error = errors.New("ErrFatalSaveException error (dbops
 
 type Table_value struct {
 	Column string //name of the column (inside your database)
-	Values []any //will be interpreted as Column = Values[0] OR Column = Values[1] ...
+	Values []any //will be interpreted as Column = Values[0] OR Column = Values[1] ... 
 }
 
 type Db_table struct {
