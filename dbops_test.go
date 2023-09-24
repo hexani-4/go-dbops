@@ -44,6 +44,8 @@ func TestAddTestDelete(t *testing.T) {
 	err = dbops.ExtendDataSource("db", test_structure2)
 	if err != nil { t.Fatalf(err.Error()) }
 
+	fmt.Println("Load things")
+
 	fmt.Println("RemoveDataSource")
 	err = dbops.RemoveDataSource("db")
 	if err != nil { t.Fatalf(err.Error()) }

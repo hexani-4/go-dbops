@@ -17,6 +17,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+//TODO: add something to CheckDbStructure to allow it to be automatically extended by structure required by dbops
+
 /*major changes:
 - can now not have in-memory
 - dbToStructureCompat now outputs a structure target map (done)
@@ -560,6 +562,10 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 		fmt.Printf("loadIntoMemory() -- count < 0; interpreted as height of %s - index (= %d )\n", table, count)
 	}
 
+	if count == 0 {
+		return 0, nil
+	}
+
 
 	joined_db, _, err := attachDatabases(Mem, db, "source")
 	//don't care about swap since main is always in-memory
@@ -1044,19 +1050,23 @@ func GetDataByIndex(table string, order_clause string, index int, count int, row
 
 		if index < 0 {
 			index = source_length - count
-			fmt.Printf("loadIntoMemory() -- index < 0; interpreted as height of %s - count (= %d )\n", table, index)
+			fmt.Printf("GetDataByIndex() -- index < 0; interpreted as height of %s - count (= %d )\n", table, index)
 		}
 
 		if count < 0 {
 			count = source_length - index
-			fmt.Printf("loadIntoMemory() -- count < 0; interpreted as height of %s - index (= %d )\n", table, count)
+			fmt.Printf("GetDataByIndex() -- count < 0; interpreted as height of %s - index (= %d )\n", table, count)
 		}
+	}
+
+	if count == 0 {
+		return row_slice, nil 
 	}
 
 	rows, err := db.Queryx(fmt.Sprintf("SELECT * FROM main.%s %s LIMIT %d OFFSET %d;", tablename, order_clause, count, index))
 	if err != nil { return row_slice, err }
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		receiver := reflect.New(rr_type).Elem()
 
@@ -1315,7 +1325,7 @@ func CheckSourceStructure(name string, structure Db_structure, strict bool) (boo
 		return reflect.DeepEqual(db_structure, structure), nil
 
 	} else {
-		_, compatible, err := dbToStructureCompat(db, structure, false) //maybe just reflect.DeepEqual() ?
+		_, compatible, err := dbToStructureCompat(db, structure, false)
 		return compatible, err
 	}
 }
