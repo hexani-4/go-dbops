@@ -429,7 +429,6 @@ func (target_map db_target_map) performMerge(bidirectional bool, condition_claus
 	return nil
 }
 
-
 //Inserts OR Ignores all rows from each table (of each db) into a table with the same num of columns && order of datatypes (column names don't matter) in all dbs. 
 //Does not care about intermediate memory, will directly merge the files. 
 func MergeSources(names []string, skip_incompatible_tables bool) error {
@@ -590,6 +589,75 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 	return retrieved_count, nil
 }
 
+func addReservedToStructure(structure Db_structure) (exStructure Db_structure, err error) {
+	exStructure = make(Db_structure)
+
+	var presentResTables []string
+
+	for o_tablename, o_table := range structure { 
+		c_table := *o_table
+
+		r_table, exists := reserved_structure[o_tablename] //check if reserved table exists	
+		if exists {
+			ex_r_table := *r_table
+			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
+
+			if reflect.DeepEqual(c_table, ex_r_table) {
+				presentResTables = append(presentResTables, o_tablename)
+			} else {
+				fmt.Println("dbops - non-compatible reserved table detected")
+				return nil, ErrIsReserved
+			}
+		}
+
+		r_col_iter:
+		for _, r_col := range reserved_columns { //check if reserved columns exist
+
+			semiform_r_col := strings.FieldsFunc(r_col, quoteSplit)
+			var form_r_col string
+			if len(semiform_r_col) == 1 {
+				form_r_col = strings.Fields(semiform_r_col[0])[0]
+			} else {
+				form_r_col = semiform_r_col[0]
+			} 
+
+			for _, c_col := range c_table.Columns {
+
+				semiform_c_col := strings.FieldsFunc(c_col, quoteSplit)
+				var form_c_col string
+				if len(semiform_c_col) == 1 {
+					form_c_col = strings.Fields(semiform_c_col[0])[0]
+				} else {
+					form_c_col = semiform_c_col[0]
+				} 
+
+				if form_r_col == form_c_col {
+					if reflect.DeepEqual(r_col, c_col) {
+						continue r_col_iter
+					} else {
+						fmt.Println("dbops - non-compatible reserved column detected")
+						return nil, ErrIsReserved
+					}
+				}
+
+			}
+			c_table.Columns = append(c_table.Columns, r_col) //add reserved column
+		}
+
+		exStructure[o_tablename] = &c_table //add the modified (copy of) table to new structure
+	}
+
+	for r_tablename, r_table := range reserved_structure {
+		if slices.Contains(presentResTables, r_tablename) { continue } //= already is in the database
+
+		ex_r_table := *r_table
+		ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
+
+		exStructure[r_tablename] = &ex_r_table
+	}
+
+	return exStructure, nil
+}
 
 //Creates the .db file, along with any non-existent directories along its path. The database will not have any schema. Does not add the <path> (aka database) to data_sources. 
 //Setting overwrite_existing to true will make a new database even if the path already exists (would return os.ErrExist otherwise). 
@@ -682,7 +750,7 @@ func AddDataSource(path string, alias string) error {
 	}
 
 	for tablename, table := range structure {
-		r_column_iterator:
+		r_column_iter:
 		for _, r_column := range reserved_columns{
 
 			semiform_r_column := strings.FieldsFunc(r_column, quoteSplit)
@@ -708,7 +776,7 @@ func AddDataSource(path string, alias string) error {
 						fmt.Println("dbops - non-compatible reserved column detected")
 						return ErrIsReserved
 					} else {
-						continue r_column_iterator //it was probably created by dbops, will leech off of it
+						continue r_column_iter //it was probably created by dbops, will leech off of it
 					}
 				} 
 			}
@@ -810,12 +878,19 @@ func ExtendDataSource(name string, structure Db_structure) error {
 		return false
 	}() { return ErrUnknownSourceName }
 
-	for r_tablename := range reserved_structure {
+	exStructure := make(Db_structure)
+
+	for r_tablename, r_table := range reserved_structure {
 		_, exists := structure[r_tablename] 
-		if exists { 
-			fmt.Println("dbops - reserved tablename requested -", r_tablename)
-			return ErrIsReserved //would mean that a reserved tablename was requested
-		} 
+		if exists {
+				fmt.Println("dbops - non-compatible reserved table detected")
+				return ErrIsReserved
+		} else {
+			ex_r_table := *r_table
+			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
+
+			exStructure[r_tablename] = &ex_r_table
+		}
 	}
 
 	tablenames := make([]string, len(structure))
@@ -841,14 +916,15 @@ func ExtendDataSource(name string, structure Db_structure) error {
 					form_column = semiform_column[0]
 				}
 				
-				if (form_r_column == form_column) && !reflect.DeepEqual(column, r_column)  { 
-					fmt.Println("dbops - reserved column requested -", form_column)
-					return ErrIsReserved //would mean that a reserved column name was requested
+				if form_r_column == form_column { //would mean that a reserved column name was requested
+					fmt.Println("dbops - non-compatible reserved column detected")
+					return ErrIsReserved
 				}
 			}
 		}
-		table.Columns = append(table.Columns, reserved_columns...)
-
+		c_table := *table
+		c_table.Columns = append(c_table.Columns, reserved_columns...)
+		exStructure[tablename] = &c_table
 		tablenames[i] = tablename
 		i++
 	}
@@ -858,30 +934,11 @@ func ExtendDataSource(name string, structure Db_structure) error {
 	if err != nil { return err }
 	defer db.Close()
 	
-	for e, statement := range structure.tableCreateStatements(false){
+	for e, statement := range exStructure.tableCreateStatements(false){
 		_, err := db.Exec(statement)
 		if err != nil { return err }
 
-		tablename, table := tablenames[e], structure[tablenames[e]]  //insert nil row
-			/*nil_statement := "INSERT INTO " + tablename + " VALUES("
-			for _, col := range table.Columns {
-				switch strings.Split(col, " ")[1]{
-				case "INTEGER":
-					nil_statement += "0, "
-				case "TEXT":
-					nil_statement += "'none', "
-				case "BLOB":
-					nil_statement += "'none', "
-				case "REAL":
-					nil_statement += "0.0, "
-				default: //may cause errors
-					nil_statement += "'none', "
-				}
-			}
-	
-			nil_statement = nil_statement[:len(nil_statement) - 2] + ");"
-			_, err = db.Exec(nil_statement)
-			if (err != nil) { return err }*/
+		tablename, table := tablenames[e], exStructure[tablenames[e]] 
 
 		if Mem != nil {
 			create_statement := "CREATE TABLE " + alias + "_" + tablename //modified .tableCreateStatements()
@@ -894,9 +951,6 @@ func ExtendDataSource(name string, structure Db_structure) error {
 
 			_, err := Mem.Exec(create_statement)
 			if err != nil { return err }
-
-			/*_, err = Mem.Exec(nil_statement)
-			if err != nil { return err }*/
 			}
 
 		data_sources[ds_index].Tablenames = append(data_sources[ds_index].Tablenames, tablenames[e])
@@ -1318,14 +1372,17 @@ func CheckSourceStructure(name string, structure Db_structure, strict bool) (boo
 	if err != nil { return false, err }
 	defer db.Close()
 
+	ex_structure, err := addReservedToStructure(structure)
+	if err != nil { return false, err }
+
 	if strict {
 		db_structure, err := structureFromDb(db)
 		if err != nil { return false, err }
 
-		return reflect.DeepEqual(db_structure, structure), nil
+		return reflect.DeepEqual(db_structure, ex_structure), nil
 
 	} else {
-		_, compatible, err := dbToStructureCompat(db, structure, false)
+		_, compatible, err := dbToStructureCompat(db, ex_structure, false)
 		return compatible, err
 	}
 }
@@ -1344,13 +1401,50 @@ func CheckTableStructure(table string, db_table *Db_table) (bool, error) {
 	if err != nil { return false, err } 
 	defer db.Close()
 
+	c_table := *db_table
+
+	r_col_iter:
+	for _, r_col := range reserved_columns { //check if reserved columns exist
+
+		semiform_r_col := strings.FieldsFunc(r_col, quoteSplit)
+		var form_r_col string
+		if len(semiform_r_col) == 1 {
+			form_r_col = strings.Fields(semiform_r_col[0])[0]
+		} else {
+			form_r_col = semiform_r_col[0]
+		} 
+
+		for _, c_col := range c_table.Columns {
+
+			semiform_c_col := strings.FieldsFunc(c_col, quoteSplit)
+			var form_c_col string
+			if len(semiform_c_col) == 1 {
+				form_c_col = strings.Fields(semiform_c_col[0])[0]
+			} else {
+				form_c_col = semiform_c_col[0]
+			} 
+
+			if form_r_col == form_c_col {
+				if reflect.DeepEqual(r_col, c_col) {
+					continue r_col_iter
+				} else {
+					fmt.Println("dbops - non-compatible reserved column detected")
+					return false, ErrIsReserved
+				}
+			}
+
+		}
+		c_table.Columns = append(c_table.Columns, r_col)
+	}
+	
+
 	structure, err := structureFromDb(db) 
 	if err != nil { return false, err }
 
 	val, ok := structure[tablename]
 	if !ok { return false, ErrUnknownTableName }
 
-	if reflect.DeepEqual(val, db_table) {
+	if reflect.DeepEqual(val, c_table) {
 		return  true, nil
 	}
 
