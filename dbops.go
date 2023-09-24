@@ -563,7 +563,7 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 	}
 
 	if count == 0 {
-		return 0, nil
+		return 0, nil 
 	}
 
 
