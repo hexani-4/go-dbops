@@ -98,7 +98,7 @@ func FormatUInputTable(table string) (string, string, error) {
 
 	} else if len(split_table) == 2 {
 		for _, source := range data_sources{
-			if ((split_table[0] == source.Alias) || (split_table[0] == source.Path)) && slices.Contains(source.Tablenames, split_table[1]){
+			if ((split_table[0] == source.Alias) || (split_table[0] == source.Path)) && slices.Contains(source.Tablenames, split_table[1]) {
 				return split_table[0], split_table[1], nil
 			}
 		}
@@ -737,10 +737,11 @@ func AddDataSource(path string, alias string) error {
 
 		} else {
 
-			r_table_copy := *r_table
+			ex_r_table_copy := *r_table
+			ex_r_table_copy.Columns = append(ex_r_table_copy.Columns, reserved_columns...)
 
-			toBeAdded_structure[r_tablename] = &r_table_copy
-			structure[r_tablename] = &r_table_copy
+			toBeAdded_structure[r_tablename] = &ex_r_table_copy
+			structure[r_tablename] = &ex_r_table_copy
 		}
 	}
 
@@ -862,7 +863,7 @@ func quoteSplit(r rune) bool {
 //TODO: consider checking if things in structure already exist in the database
 //Attempts to add all of <structure> into <name>. Will return error (from sqlx) if that tablename already exists. 
 //If Memory is enabled, will try to also add <structure> to it (as '<alias_from_name>_<tablename>'). 
-func ExtendDataSource(name string, structure Db_structure) error {
+func ExtendDataSource(name string, structure Db_structure) error { //TODO: super weird bug where this attempts to add reserved tables?!?!
 	var ds_index int
 	var path string
 	var alias string
@@ -878,20 +879,20 @@ func ExtendDataSource(name string, structure Db_structure) error {
 		return false
 	}() { return ErrUnknownSourceName }
 
-	exStructure := make(Db_structure)
+	fmt.Println("structure")
+	for tablename, table := range structure {
+		fmt.Println(tablename, *table)
+	}
 
-	for r_tablename, r_table := range reserved_structure {
+	for r_tablename := range reserved_structure {
 		_, exists := structure[r_tablename] 
 		if exists {
 				fmt.Println("dbops - non-compatible reserved table detected")
 				return ErrIsReserved
-		} else {
-			ex_r_table := *r_table
-			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
-
-			exStructure[r_tablename] = &ex_r_table
 		}
 	}
+
+	exStructure := make(Db_structure)
 
 	tablenames := make([]string, len(structure))
 	i := 0
@@ -916,15 +917,15 @@ func ExtendDataSource(name string, structure Db_structure) error {
 					form_column = semiform_column[0]
 				}
 				
-				if form_r_column == form_column { //would mean that a reserved column name was requested
+				if (form_r_column == form_column) { //would mean that a reserved column name was requested
 					fmt.Println("dbops - non-compatible reserved column detected")
 					return ErrIsReserved
 				}
 			}
 		}
-		c_table := *table
-		c_table.Columns = append(c_table.Columns, reserved_columns...)
-		exStructure[tablename] = &c_table
+		c_ex_table := *table
+		c_ex_table.Columns = append(c_ex_table.Columns, reserved_columns...)
+		exStructure[tablename] = &c_ex_table
 		tablenames[i] = tablename
 		i++
 	}
@@ -934,7 +935,12 @@ func ExtendDataSource(name string, structure Db_structure) error {
 	if err != nil { return err }
 	defer db.Close()
 	
-	for e, statement := range exStructure.tableCreateStatements(false){
+	fmt.Println("exStructure")
+	for tablename, table := range exStructure {
+		fmt.Println(tablename, *table)
+	}
+
+	for e, statement := range exStructure.tableCreateStatements(false) {
 		_, err := db.Exec(statement)
 		if err != nil { return err }
 
@@ -1362,7 +1368,7 @@ func EndMemory() error {
 }
 
 //Checks if the schema of <name> is the same as that of <structure> . 
-//strict = false -> Doesn't care about column/table names (only number, order & datatypes of columns matter). 
+//strict = false -> Doesn't care about the primary key and column/table names (only number, order & datatypes of columns matter). 
 //strict = true -> Structures have to be equal in all aspects
 func CheckSourceStructure(name string, structure Db_structure, strict bool) (bool, error) {
 	path, err := NameToPath(name)
@@ -1436,7 +1442,6 @@ func CheckTableStructure(table string, db_table *Db_table) (bool, error) {
 		}
 		c_table.Columns = append(c_table.Columns, r_col)
 	}
-	
 
 	structure, err := structureFromDb(db) 
 	if err != nil { return false, err }
@@ -1444,7 +1449,7 @@ func CheckTableStructure(table string, db_table *Db_table) (bool, error) {
 	val, ok := structure[tablename]
 	if !ok { return false, ErrUnknownTableName }
 
-	if reflect.DeepEqual(val, c_table) {
+	if reflect.DeepEqual(*val, c_table) {
 		return  true, nil
 	}
 

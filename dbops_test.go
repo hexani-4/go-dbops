@@ -11,6 +11,11 @@ import (
 func TestAddTestDelete(t *testing.T) {
 	db_path := "./test.db"
 
+	test_structure := dbops.Db_structure{"settings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
+										 "tables": &dbops.Db_table{Columns: []string{"tablename TEXT", "table_columns TEXT", "table_pk TEXT"}},
+  										}
+	test_structure2 := dbops.Db_structure{"test": &dbops.Db_table{Columns: []string{"ey TEXT", "uy TEXT"}, Primary_key: []string{"ey"}}}
+
 	fmt.Println("CreateDataSource")
 	err := dbops.CreateDataSource(db_path, true)
 	if err != nil { t.Fatalf(err.Error()) }
@@ -23,11 +28,34 @@ func TestAddTestDelete(t *testing.T) {
 	if err != nil { t.Fatalf(err.Error()) }
 
 	fmt.Println("ExtendDataSource")
-	test_structure := dbops.Db_structure{"settings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
- 										 "sure": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
-										}
 	err = dbops.ExtendDataSource("db", test_structure)
 	if err != nil { t.Fatalf(err.Error()) }
+
+	fmt.Println("CheckSourceStructure - strict")
+	result, err := dbops.CheckSourceStructure("db", test_structure, true)
+	if err != nil {
+		t.Fatalf(err.Error())
+	} else if !result {
+		t.Fatalf("expected true, got false")
+	}
+
+	fmt.Println("CheckSourceStructure - not strict")
+	result, err = dbops.CheckSourceStructure("db", test_structure, false)
+	if err != nil {
+		t.Fatalf(err.Error())
+	} else if !result {
+		t.Fatalf("expected true, got false")
+	}
+
+	fmt.Println("CheckTableStructure - for each table")
+	for tablename, table := range test_structure {
+		result, err = dbops.CheckTableStructure("db." + tablename, table)
+		if err != nil {
+			t.Fatalf(err.Error())
+		} else if !result {
+			t.Fatalf("expected true, got false")
+		}
+	}
 
 	time.Sleep(1 * time.Second)
 
@@ -40,7 +68,7 @@ func TestAddTestDelete(t *testing.T) {
 	if err != nil { t.Fatalf(err.Error()) }
 
 	fmt.Println("ExtendDataSource")
-	test_structure2 := dbops.Db_structure{"test": &dbops.Db_table{Columns: []string{"ey TEXT", "uy TEXT"}, Primary_key: []string{"ey"}}}
+	
 	err = dbops.ExtendDataSource("db", test_structure2)
 	if err != nil { t.Fatalf(err.Error()) }
 
