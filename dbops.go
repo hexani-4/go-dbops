@@ -879,11 +879,6 @@ func ExtendDataSource(name string, structure Db_structure) error { //TODO: super
 		return false
 	}() { return ErrUnknownSourceName }
 
-	fmt.Println("structure")
-	for tablename, table := range structure {
-		fmt.Println(tablename, *table)
-	}
-
 	for r_tablename := range reserved_structure {
 		_, exists := structure[r_tablename] 
 		if exists {
@@ -934,11 +929,6 @@ func ExtendDataSource(name string, structure Db_structure) error { //TODO: super
 	db, err := sqlx.Connect("sqlite3", path)
 	if err != nil { return err }
 	defer db.Close()
-	
-	fmt.Println("exStructure")
-	for tablename, table := range exStructure {
-		fmt.Println(tablename, *table)
-	}
 
 	for e, statement := range exStructure.tableCreateStatements(false) {
 		_, err := db.Exec(statement)
@@ -1047,18 +1037,24 @@ func InsertData(table string, values... any) error {
 		tablename =  alias + "_" + tablename
 	}
 
-	insert_statement := fmt.Sprintf("INSERT OR IGNORE INTO %s VALUES (", tablename)
+	c_values := make([]any, len(values) + len(reserved_columns))
+	copy(c_values, values) //probably isn't a deepcopy, watch out!
 
-	qm_array := make([]string, len(values))
-	for i := range qm_array{
-		qm_array[i] = "?"
+	insert_statement := fmt.Sprintf("INSERT OR IGNORE INTO '%s' VALUES (", tablename)
+
+	for i := 1; i < len(c_values); i++ {
+		insert_statement += "?, "
 	}
 
-	insert_statement += strings.Join(qm_array, ", ") + ");"
-	
+
+	for i := range reserved_columns {
+		insert_statement += "?, "
+		c_values[i + len(values)] = "0"
+	}
+	insert_statement = insert_statement[:len(insert_statement) - 2] + ");"
 	
 	if Mem != nil {
-		_, err = Mem.Exec(insert_statement, values...)
+		_, err = Mem.Exec(insert_statement, c_values...)
 		if err != nil { return err }	
 
 	} else {
@@ -1069,7 +1065,7 @@ func InsertData(table string, values... any) error {
 		if err != nil { return err }
 		defer db.Close()
 
-		_, err = db.Exec(insert_statement, values...)
+		_, err = db.Exec(insert_statement, c_values...)
 		if err != nil { return err }	
 	}
 	return nil

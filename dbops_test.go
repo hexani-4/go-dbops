@@ -11,7 +11,7 @@ import (
 func TestAddTestDelete(t *testing.T) {
 	db_path := "./test.db"
 
-	test_structure := dbops.Db_structure{"settings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
+	test_structure := dbops.Db_structure{"setďings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
 										 "tables": &dbops.Db_table{Columns: []string{"tablename TEXT", "table_columns TEXT", "table_pk TEXT"}},
   										}
 	test_structure2 := dbops.Db_structure{"test": &dbops.Db_table{Columns: []string{"ey TEXT", "uy TEXT"}, Primary_key: []string{"ey"}}}
@@ -53,9 +53,13 @@ func TestAddTestDelete(t *testing.T) {
 		if err != nil {
 			t.Fatalf(err.Error())
 		} else if !result {
-			t.Fatalf("expected true, got false")
+			t.Fatalf("expected true, got false") 
 		}
 	}
+
+	fmt.Println("InsertData")
+	err = dbops.InsertData("db.tables", "a", "e", "č")
+	if err != nil { t.Fatalf(err.Error()) }
 
 	time.Sleep(1 * time.Second)
 
