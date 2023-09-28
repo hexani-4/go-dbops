@@ -61,6 +61,13 @@ func TestAddTestDelete(t *testing.T) {
 	err = dbops.InsertData("db.tables", "a", "e", "č")
 	if err != nil { t.Fatalf(err.Error()) }
 
+
+	fmt.Println("GetDataByIndex")
+	data, err := dbops.GetDataByIndex("db.tables", "", 0, -1)
+	fmt.Println(data)
+	if err != nil { t.Fatalf(err.Error()) }
+	
+
 	time.Sleep(1 * time.Second)
 
 	fmt.Println("RemoveDataSource")

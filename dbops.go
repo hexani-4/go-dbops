@@ -35,7 +35,6 @@ var ErrDatabaseMerge error = errors.New("ErrDatabaseMerge error (dbops) - The su
 var ErrInvalidTable error = errors.New("ErrInvalidTable error (dbops) - The supplied param was not '<alias>.<tablename>' or '<tablename>'")
 var ErrUnknownTableName error = errors.New("ErrUnknownTableName error (dbops) - The target database does not have a table of this name")
 var ErrInvalidData error = errors.New("ErrInvalidData error (dbops) - The supplied data is not compatible with its target table, check the number of columns")
-var ErrIsNotStruct error = errors.New("ErrIsNotStruct error (dbops) - The supplied param is not of type struct, and cannot accept data from a table")
 var ErrIsReserved error = errors.New("ErrIsReserved error (dbops) - Part of the loaded/requested structure is needed by dbops, rename it - check for a 'DeleteState' column")
 var ErrIsNotAllowedChar error = errors.New("ErrIsNotAllowedChar error (dbops) - The supplied DataSource alias contained the '_' character")
 var ErrFatalSaveException error = errors.New("ErrFatalSaveException error (dbops) - Failed to save memory to disk due to internal data error...this shouldn't be possible")
@@ -1071,16 +1070,13 @@ func InsertData(table string, values... any) error {
 	return nil
 }
 
-//Returns a slice of <row_receiver>s (= exported struct with fields (of proper type, all exported) for all columns of <table>). 
+//Returns a slice of slices representing the rows of the table 
 //Examples of working order_clause(s): "ORDER BY col1, col2 ASC", "". 
 //index < 0 -> index = height of table - count (= retrieves <count> rows from the end). count < 0 -> count = height of table - index (= retrieves all items from <index> to end of table) 
 //index < 0 && count < 0 will retrieve 0 rows.
-func GetDataByIndex(table string, order_clause string, index int, count int, row_receiver any) ([]any, error) {
-	var row_slice []any
+func GetDataByIndex(table string, order_clause string, index int, count int) ([][]any, error) {
+	var row_slice [][]any
 	
-	rr_type := reflect.TypeOf(row_receiver)
-	if rr_type.Kind() != reflect.Struct { return row_slice, ErrIsNotStruct }
-
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return row_slice, err }
 
@@ -1124,12 +1120,10 @@ func GetDataByIndex(table string, order_clause string, index int, count int, row
 	defer rows.Close()
 
 	for rows.Next() {
-		receiver := reflect.New(rr_type).Elem()
-
-		err := rows.StructScan(receiver.Addr().Interface())
+		row_data, err := rows.SliceScan()
 		if err != nil { return row_slice, err }
 
-		row_slice = append(row_slice, receiver.Interface())
+		row_slice = append(row_slice, row_data)
 	}
 
 	return row_slice, nil
@@ -1151,13 +1145,10 @@ func makeConditionClause(in []Table_value) ([]any, string) {
 	return unpacked_values, "WHERE " + strings.Join(condition_array, " AND ")
 }
 
-//Returns a slice of <row_receiver>s (= exported struct with fields (of proper type, all exported) for all columns of <table>). 
+//Returns a slice of slices representing the rows of the table 
 //Examples of working order_clause(s): "ORDER BY col1, col2 ASC", "". 
-func GetDataByValue(table string, order_clause string, values []Table_value, row_receiver any) ([]any, error) {
-	var row_slice []any
-	
-	rr_type := reflect.TypeOf(row_receiver)
-	if rr_type.Kind() != reflect.Struct { return row_slice, ErrIsNotStruct }
+func GetDataByValue(table string, order_clause string, values []Table_value) ([][]any, error) {
+	var row_slice [][]any
 
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return row_slice, err }
@@ -1185,13 +1176,12 @@ func GetDataByValue(table string, order_clause string, values []Table_value, row
 	defer rows.Close()
 	
 	for rows.Next() {
-		receiver := reflect.New(rr_type).Elem()
-
-		err := rows.StructScan(receiver.Addr().Interface())
+		row_data, err := rows.SliceScan()
 		if err != nil { return row_slice, err }
 
-		row_slice = append(row_slice, receiver.Interface())
+		row_slice = append(row_slice, row_data)
 	}
+
 	return row_slice, nil
 }
 
