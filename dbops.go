@@ -124,7 +124,7 @@ func (structure Db_structure) tableCreateStatements(if_not_exists bool) []string
 		if if_not_exists {
 			statement += "IF NOT EXISTS "
 		}
-		statement += tablename
+		statement += "'" + tablename + "'"
 		statement += "(" + strings.Join(table.Columns, ", ")
 		if len(table.Primary_key) != 0 {
 		statement += ", PRIMARY KEY("
@@ -374,11 +374,11 @@ func attachDatabases(main *sqlx.DB, other *sqlx.DB, alias string) (*sqlx.DB, boo
 	_, other_name := filepath.Split(other_path)
 
     if (other_name != "") {
-		_, err := main.Exec(fmt.Sprintf("ATTACH DATABASE '%s' AS %s;", other_path, alias))
+		_, err := main.Exec(fmt.Sprintf("ATTACH DATABASE '%s' AS '%s';", other_path, alias))
 		return main, false, err
 
 	} else if (other_name == "" && main_name != "") {
-		_, err := other.Exec(fmt.Sprintf("ATTACH DATABASE '%s' AS %s;", main_path, alias))
+		_, err := other.Exec(fmt.Sprintf("ATTACH DATABASE '%s' AS '%s';", main_path, alias))
 		return other, true, err
 	
 	} else { return nil, false, errors.New("attachDatabases() - attempted to attach two in-memory databases")}
@@ -407,13 +407,13 @@ func (target_map db_target_map) performMerge(bidirectional bool, condition_claus
 
 			for master_t, slave_t := range table_map{
 
-				_, err := joined_db.Exec(fmt.Sprintf("INSERT OR IGNORE INTO %s.%s SELECT * FROM %s.%s %s;", slave, slave_t, master, master_t, condition_clause))
+				_, err := joined_db.Exec(fmt.Sprintf("INSERT OR IGNORE INTO '%s'.'%s' SELECT * FROM '%s'.'%s' %s;", slave, slave_t, master, master_t, condition_clause))
 				if err != nil {
 					joined_db.Exec("DETACH DATABASE other;")
 					return err}
 
 				if bidirectional {
-				_, err := joined_db.Exec(fmt.Sprintf("INSERT OR IGNORE INTO %s.%s SELECT * FROM %s.%s %s;", master, master_t, slave, slave_t, condition_clause))
+				_, err := joined_db.Exec(fmt.Sprintf("INSERT OR IGNORE INTO '%s'.'%s' SELECT * FROM '%s'.'%s' %s;", master, master_t, slave, slave_t, condition_clause))
 				if err != nil {
 					joined_db.Exec("DETACH DATABASE other;")
 					return err}
@@ -537,7 +537,7 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 	mem_tablename := name_alias + "_" + tablename
 
 	var old_mem_length int
-	err = Mem.Get(&old_mem_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", mem_tablename))
+	err = Mem.Get(&old_mem_length, fmt.Sprintf("SELECT rowid FROM 'main'.'%s' ORDER BY rowid DESC LIMIT 1;", mem_tablename))
 	if (err != sql.ErrNoRows) && (err != nil) { return 0, err }
 	
 
@@ -553,7 +553,7 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 
 	if count < 0 {
 		var source_length int
-		err = db.Get(&source_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", tablename))
+		err = db.Get(&source_length, fmt.Sprintf("SELECT rowid FROM 'main'.'%s' ORDER BY rowid DESC LIMIT 1;", tablename))
 		if (err != sql.ErrNoRows) && (err != nil) { return 0, err }
 
 		count = source_length - index
@@ -574,12 +574,12 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 	if err != nil { return 0, err }
 	mem_table_pk := strings.Join(mem_structure[mem_tablename].Primary_key, ", ")
 
-	insert_statement := fmt.Sprintf("INSERT OR IGNORE INTO main.%s SELECT DISTICT %s FROM source.%s %s LIMIT %d OFFSET %d;", mem_tablename, mem_table_pk, tablename, order_clause, count, index)
+	insert_statement := fmt.Sprintf("INSERT OR IGNORE INTO 'main'.'%s' SELECT DISTICT %s FROM 'source'.'%s' %s LIMIT %d OFFSET %d;", mem_tablename, mem_table_pk, tablename, order_clause, count, index)
 	_, err = joined_db.Exec(insert_statement)
 	if err != nil { return 0, err }
 
 	var mem_length int
-	err = Mem.Get(&mem_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", mem_tablename))
+	err = Mem.Get(&mem_length, fmt.Sprintf("SELECT rowid FROM 'main'.'%s' ORDER BY rowid DESC LIMIT 1;", mem_tablename))
 	retrieved_count := mem_length - old_mem_length
 	if (err != sql.ErrNoRows) && (err != nil) { return retrieved_count, err }
 
@@ -781,7 +781,7 @@ func AddDataSource(path string, alias string) error {
 				} 
 			}
 
-			_, err = db.Exec(fmt.Sprintf("ALTER TABLE main.%s ADD COLUMN %s", tablename, r_column))
+			_, err = db.Exec(fmt.Sprintf("ALTER TABLE 'main'.'%s' ADD COLUMN %s", tablename, r_column))
 			if err != nil { return err }
 			table.Columns = append(table.Columns, r_column)
 		}
@@ -798,8 +798,8 @@ func AddDataSource(path string, alias string) error {
 		i++
 
 		if Mem != nil {
-			create_statement := "CREATE TABLE " + alias + "_" + tablename //modified .tableCreateStatements()
-			create_statement += "(" + strings.Join(table.Columns, ", ")
+			create_statement := "CREATE TABLE '" + alias + "_" + tablename //modified .tableCreateStatements()
+			create_statement += "'(" + strings.Join(table.Columns, ", ")
 			if len(table.Primary_key) != 0 {
 				create_statement += ", PRIMARY KEY("
 				create_statement += strings.Join(table.Primary_key, ", ") + ")"
@@ -840,8 +840,8 @@ func RemoveDataSource(name string) error {
 				defer db.Close()
 
 				for _, tablename := range source.Tablenames {
-					drop_statement := "DROP TABLE "
-					drop_statement += source.Alias + "_" + tablename
+					drop_statement := "DROP TABLE '"
+					drop_statement += source.Alias + "_" + tablename + "'"
 					_, err := Mem.Exec(drop_statement)
 					if err != nil { return err }
 				} 
@@ -936,8 +936,8 @@ func ExtendDataSource(name string, structure Db_structure) error { //TODO: super
 		tablename, table := tablenames[e], exStructure[tablenames[e]] 
 
 		if Mem != nil {
-			create_statement := "CREATE TABLE " + alias + "_" + tablename //modified .tableCreateStatements()
-			create_statement += "(" + strings.Join(table.Columns, ", ")
+			create_statement := "CREATE TABLE '" + alias + "_" + tablename //modified .tableCreateStatements()
+			create_statement += "'(" + strings.Join(table.Columns, ", ")
 			if len(table.Primary_key) != 0 {
 				create_statement += ", PRIMARY KEY("
 				create_statement += strings.Join(table.Primary_key, ", ") + ")"
@@ -1097,7 +1097,7 @@ func GetDataByIndex(table string, order_clause string, index int, count int) ([]
 
 	if (index < 0) || (count < 0){
 		var source_length int
-		err = db.Get(&source_length, fmt.Sprintf("SELECT rowid FROM main.%s ORDER BY rowid DESC LIMIT 1;", tablename));
+		err = db.Get(&source_length, fmt.Sprintf("SELECT rowid FROM 'main'.'%s' ORDER BY rowid DESC LIMIT 1;", tablename));
 		if (err != sql.ErrNoRows) && (err != nil) { return row_slice, err }
 
 		if index < 0 {
@@ -1115,7 +1115,7 @@ func GetDataByIndex(table string, order_clause string, index int, count int) ([]
 		return row_slice, nil 
 	}
 
-	rows, err := db.Queryx(fmt.Sprintf("SELECT * FROM main.%s %s LIMIT %d OFFSET %d;", tablename, order_clause, count, index))
+	rows, err := db.Queryx(fmt.Sprintf("SELECT * FROM 'main'.'%s' %s LIMIT %d OFFSET %d;", tablename, order_clause, count, index))
 	if err != nil { return row_slice, err }
 	defer rows.Close()
 
@@ -1171,7 +1171,7 @@ func GetDataByValue(table string, order_clause string, values []Table_value) ([]
 	unpacked_values, condition_clause := makeConditionClause(values)
 	
 
-	rows, err := db.Queryx(fmt.Sprintf("SELECT * FROM %s %s %s;", tablename, condition_clause, order_clause), unpacked_values...)
+	rows, err := db.Queryx(fmt.Sprintf("SELECT * FROM 'main'.'%s' %s %s;", tablename, condition_clause, order_clause), unpacked_values...)
 	if err != nil { return row_slice, err }
 	defer rows.Close()
 	
@@ -1210,7 +1210,7 @@ func SetDeleteByValue(table string, to_what bool, values []Table_value) error {
 	if to_what { to_what_int = 1 }
 
 	unpacked_values, condition_clause := makeConditionClause(values)
-	_, err = db.Exec(fmt.Sprintf("UPDATE main.%s SET DeleteState=%b %s", tablename, to_what_int, condition_clause), unpacked_values...)
+	_, err = db.Exec(fmt.Sprintf("UPDATE 'main'.'%s' SET DeleteState=%b %s", tablename, to_what_int, condition_clause), unpacked_values...)
 	if err != nil { return err }
 
 	deleteHistory = append(deleteHistory, &deleteHistItem{table: table, to_what: to_what, values: values})
@@ -1244,12 +1244,12 @@ func RemoveDeleted(name string) error {
 	if err != nil { return err }
 
 	for tablename := range structure {
-		_, err = db.Exec(fmt.Sprintf("DELETE FROM %s WHERE DeleteState=1", tablename))
+		_, err = db.Exec(fmt.Sprintf("DELETE FROM '%s' WHERE DeleteState=1", tablename))
 		if err != nil { return err }
 
 		if Mem != nil {
 			alias, _ := NameToAlias(name)
-			_, err = db.Exec(fmt.Sprintf("DELETE FROM %s WHERE DeleteState=1", alias + "_" + tablename))
+			_, err = db.Exec(fmt.Sprintf("DELETE FROM '%s' WHERE DeleteState=1", alias + "_" + tablename))
 			if err != nil { return err }
 		}
 	}
@@ -1267,12 +1267,12 @@ func RemoveDeletedFromTable(table string) error {
 	if err != nil { return err }
 	defer db.Close()
 	
-	_, err = db.Exec(fmt.Sprintf("DELETE FROM %s WHERE DeleteState=1", tablename))
+	_, err = db.Exec(fmt.Sprintf("DELETE FROM '%s' WHERE DeleteState=1", tablename))
 	if err != nil { return err }
 
 	if Mem != nil {
 		alias, _ := NameToAlias(name)
-		_, err = db.Exec(fmt.Sprintf("DELETE FROM %s WHERE DeleteState=1", alias + "_" + tablename))
+		_, err = db.Exec(fmt.Sprintf("DELETE FROM '%s' WHERE DeleteState=1", alias + "_" + tablename))
 		if err != nil { return err }
 	}
 	return nil
@@ -1297,8 +1297,8 @@ func InitMemory() error {
 		db.Close()
 
 		for tablename, table := range structure { //modified .tableCreateStatements()
-			create_statement := "CREATE TABLE " + source.Alias + "_" + tablename 
-			create_statement += "(" + strings.Join(table.Columns, ", ")
+			create_statement := "CREATE TABLE '" + source.Alias + "_" + tablename 
+			create_statement += "'(" + strings.Join(table.Columns, ", ")
 			if len(table.Primary_key) != 0 {
 				create_statement += ", PRIMARY KEY("
 				create_statement += strings.Join(table.Primary_key, ", ") + ")"
@@ -1464,7 +1464,7 @@ func CheckMemoryIsSaved(name string) (bool, error) {
 		mem_tablename := alias + "_" + tablename
 
 		var int_result int
-		err = joined_db.Get(&int_result, fmt.Sprintf("SELECT NOT EXISTS (SELECT * FROM main.%[1]s EXCEPT SELECT * FROM other.%[2]s) AND NOT EXISTS (SELECT * FROM other.%[2]s EXCEPT SELECT * FROM main.%[1]s);", mem_tablename, tablename))
+		err = joined_db.Get(&int_result, fmt.Sprintf("SELECT NOT EXISTS (SELECT * FROM 'main'.'%[1]s' EXCEPT SELECT * FROM 'other'.'%[2]s') AND NOT EXISTS (SELECT * FROM 'other'.'%[2]s' EXCEPT SELECT * FROM 'main'.'%[1]s');", mem_tablename, tablename))
 		if err != nil { return false, err }
 
 		if int_result == 0 {

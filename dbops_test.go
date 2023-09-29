@@ -12,7 +12,7 @@ func TestAddTestDelete(t *testing.T) {
 	db_path := "./test.db"
 
 	test_structure := dbops.Db_structure{"setďings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
-										 "tables": &dbops.Db_table{Columns: []string{"tablename TEXT", "table_columns TEXT", "table_pk TEXT"}},
+										 "ta bl es ": &dbops.Db_table{Columns: []string{"tablename TEXT", "table_columns TEXT", "table_pk TEXT"}},
   										}
 	test_structure2 := dbops.Db_structure{"test": &dbops.Db_table{Columns: []string{"ey TEXT", "uy TEXT"}, Primary_key: []string{"ey"}}}
 
@@ -58,12 +58,12 @@ func TestAddTestDelete(t *testing.T) {
 	}
 
 	fmt.Println("InsertData")
-	err = dbops.InsertData("db.tables", "a", "e", "č")
+	err = dbops.InsertData("db.ta bl es ", "a", "e", "č")
 	if err != nil { t.Fatalf(err.Error()) }
 
 
 	fmt.Println("GetDataByIndex")
-	data, err := dbops.GetDataByIndex("db.tables", "", 0, -1)
+	data, err := dbops.GetDataByIndex("db.ta bl es ", "", 0, -1)
 	fmt.Println(data)
 	if err != nil { t.Fatalf(err.Error()) }
 	
