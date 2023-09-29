@@ -1294,7 +1294,7 @@ func GetDataByValue(table string, order_clause string, values []Table_value) ([]
 	var db *sqlx.DB
 	if Mem != nil {
 		
-		name_alias, _ := NameToAlias(name) //don't care about err since FormatUInputTable() is called before this
+		name_alias, _ := NameToAlias(name) //don't care about err since FormatUInputTable() is called before this 
 		tablename = name_alias + "_" + tablename
 		db = Mem
 
