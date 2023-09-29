@@ -12,7 +12,7 @@ func TestAddTestDelete(t *testing.T) {
 	db_path := "./test.db"
 
 	test_structure := dbops.Db_structure{"setďings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
-										 "ta bl es ": &dbops.Db_table{Columns: []string{"tablename TEXT", "table_columns TEXT", "table_pk TEXT"}},
+										 "ta bl es ": &dbops.Db_table{Columns: []string{"table name TEXT", "table_columns TEXT", "table_pk TEXT"}},
   										}
 	test_structure2 := dbops.Db_structure{"test": &dbops.Db_table{Columns: []string{"ey TEXT", "uy TEXT"}, Primary_key: []string{"ey"}}}
 
@@ -40,6 +40,9 @@ func TestAddTestDelete(t *testing.T) {
 	}
 
 	fmt.Println("CheckSourceStructure - not strict")
+	for tablename, table := range test_structure {
+		fmt.Println(tablename, *table)
+	}
 	result, err = dbops.CheckSourceStructure("db", test_structure, false)
 	if err != nil {
 		t.Fatalf(err.Error())

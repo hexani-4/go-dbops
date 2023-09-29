@@ -29,7 +29,10 @@ import (
 	- add adding of required structure to ExtendDataSource
 
 */
-var ErrUnknownSourceName error = errors.New("UnknownSourcePath error (dbops) - Check if this path/alias was added using AddDataSource()")
+var sqlite_datatypes = []string{"NULL", "INTEGER", "REAL", "TEXT", "BLOB"}
+
+var ErrBadColumnDefinition error = errors.New("ErrBadColumnDefinition (dbops) - Something was wrong with a column you requested to be created")
+var ErrUnknownSourceName error = errors.New("ErrUnknownSourceName error (dbops) - Check if this path/alias was added using AddDataSource()")
 var ErrIsNotDatabase error = errors.New("ErrIsNotDatabase error (dbops) - The supplied filepath/file load did not end in .db, check for typo in extension")
 var ErrDatabaseMerge error = errors.New("ErrDatabaseMerge error (dbops) - The supplied databases were not compatible, consider allowing skip_incompatible_tables?")
 var ErrInvalidTable error = errors.New("ErrInvalidTable error (dbops) - The supplied param was not '<alias>.<tablename>' or '<tablename>'")
@@ -120,21 +123,145 @@ func (structure Db_structure) tableCreateStatements(if_not_exists bool) []string
 	statement_list := make([]string, len(structure))
 	i := 0
 	for tablename, table := range structure {
+
+		column_names := make([]string, len(table.Columns))
+		column_exts := make([]string, len(table.Columns))
+
+		pk_names := make([]string, len(table.Primary_key))
+		
+
+		for i, col := range table.Columns{
+
+			col_f := strings.Fields(col)
+
+			name, ext := func() (name string, ext string) {
+
+				//has <col name> TEXT DEFAULT <smth> NOT NULL
+				if (len(col_f) > 5) && ((strings.ToUpper(col_f[len(col_f) - 2]) == "NOT") && (strings.ToUpper(col_f[len(col_f) - 4]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 5])))) {
+					return strings.Join(col_f[:len(col_f) - 5], " "), strings.Join(col_f[len(col_f) - 5:], " ")
+				}
+
+				//has <col name> TEXT DEFAULT <smth>
+				if (len(col_f) > 3) &&  (strings.ToUpper(col_f[len(col_f) - 2]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 3]))) {
+					return strings.Join(col_f[:len(col_f) - 3], " "), strings.Join(col_f[len(col_f) - 3:], " ")
+				}
+
+				//has <col name> TEXT
+				if (len(col_f) >= 2) && slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 1])) {
+					return strings.Join(col_f[:len(col_f) - 1], " "), col_f[len(col_f) - 1]
+				}
+				
+				return strings.Join(col_f, " "), "TEXT"
+			}()
+
+			column_names[i] = name
+			column_exts[i] = ext
+
+			if (len(table.Primary_key) != 0) && slices.Contains(table.Primary_key, name) {
+				pk_names[i] = name
+			}
+
+		}
+
+
 		statement := "CREATE TABLE "
 		if if_not_exists {
 			statement += "IF NOT EXISTS "
 		}
-		statement += "'" + tablename + "'"
-		statement += "(" + strings.Join(table.Columns, ", ")
+
+		statement += "'" + tablename + "'("
+		for i, col := range column_names {
+			statement += "'" + col + "' " + column_exts[i] + ", "
+		}
+		statement = statement[:len(statement) - 2]
+
+
 		if len(table.Primary_key) != 0 {
-		statement += ", PRIMARY KEY("
-		statement += strings.Join(table.Primary_key, ", ") + ")"
+			statement += ", PRIMARY KEY("
+			for _, pk := range pk_names {
+				statement += "'" + pk + "', "
+			}
+			statement = statement[:len(statement) - 2] + ")"
 		}
 		statement += ");"
 
 		statement_list[i] = statement
 		i++
 	}
+	fmt.Println(statement_list)
+	return statement_list
+}
+
+func (structure Db_structure) memTableCreateStatements(alias string, if_not_exists bool) []string {
+	statement_list := make([]string, len(structure))
+	i := 0
+	for tablename, table := range structure {
+
+		column_names := make([]string, len(table.Columns))
+		column_exts := make([]string, len(table.Columns))
+
+		pk_names := make([]string, len(table.Primary_key))
+		
+
+		for i, col := range table.Columns{
+
+			col_f := strings.Fields(col)
+
+			name, ext := func() (name string, ext string) {
+
+				//has <col name> TEXT DEFAULT <smth> NOT NULL
+				if (len(col_f) > 5) && ((strings.ToUpper(col_f[len(col_f) - 2]) == "NOT") && (strings.ToUpper(col_f[len(col_f) - 4]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 5])))) {
+					return strings.Join(col_f[:len(col_f) - 5], " "), strings.Join(col_f[len(col_f) - 5:], " ")
+				}
+
+				//has <col name> TEXT DEFAULT <smth>
+				if (len(col_f) > 3) &&  (strings.ToUpper(col_f[len(col_f) - 2]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 3]))) {
+					return strings.Join(col_f[:len(col_f) - 3], " "), strings.Join(col_f[len(col_f) - 3:], " ")
+				}
+
+				//has <col name> TEXT
+				if (len(col_f) >= 2) && slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 1])) {
+					return strings.Join(col_f[:len(col_f) - 1], " "), col_f[len(col_f) - 1]
+				}
+				
+				return strings.Join(col_f, " "), "TEXT"
+			}()
+
+			column_names[i] = name
+			column_exts[i] = ext
+
+			if (len(table.Primary_key) != 0) && slices.Contains(table.Primary_key, name) {
+				pk_names[i] = name
+			}
+
+		}
+
+
+		statement := "CREATE TABLE "
+		if if_not_exists {
+			statement += "IF NOT EXISTS "
+		}
+
+		statement += "'" + alias + "_" + tablename + "'("
+		for i, col := range column_names {
+			statement += "'" + col + "' " + column_exts[i] + ", "
+		}
+		statement = statement[:len(statement) - 2]
+
+
+		if len(table.Primary_key) != 0 {
+			statement += ", PRIMARY KEY("
+			for _, pk := range pk_names {
+				statement += "'" + pk + "', "
+			}
+			statement = statement[:len(statement) - 2] + ")"
+		}
+		statement += ");"
+
+		statement_list[i] = statement
+		i++
+	}
+	fmt.Println(statement_list)
 	return statement_list
 }
 
@@ -237,11 +364,12 @@ func compareTypeFromDb(db *sqlx.DB) (compare_type_map, error) {
 		}
 		structure[tablename] = type_list
 	}
+	fmt.Println(structure)
 	return structure, nil
 }
 
 type db_target_map map[*sqlx.DB]map[*sqlx.DB]map[string]string 
-func dbToDbCompat(db_list []*sqlx.DB, ignore_incompatibility bool) (db_target_map, bool, error){ 
+func dbToDbCompat(db_list []*sqlx.DB, must_share_tablename bool) (db_target_map, bool, error){ 
 	var db_target_map db_target_map = make(db_target_map)
 
 	one_or_zero_edge_case := 1
@@ -269,6 +397,7 @@ func dbToDbCompat(db_list []*sqlx.DB, ignore_incompatibility bool) (db_target_ma
 				u := 0
 				equivalent_map := make([]string, len(source)) 
 				for s_name, s_types := range source {
+
 					if len(t_types) == len(s_types){
 						
 						if reflect.DeepEqual(t_types, s_types) {
@@ -284,8 +413,12 @@ func dbToDbCompat(db_list []*sqlx.DB, ignore_incompatibility bool) (db_target_ma
 						
 						}
 					}
-
 				u++}
+
+				if !must_share_tablename { 
+					fmt.Println("    -- compatibility check failed")
+					return db_target_map, false, nil
+				} 
 
 				for _, s_name := range equivalent_map{
 					if s_name != "" {
@@ -294,10 +427,6 @@ func dbToDbCompat(db_list []*sqlx.DB, ignore_incompatibility bool) (db_target_ma
 					}
 				}	
 
-				if !ignore_incompatibility { 
-					fmt.Println("    -- compatibility check failed")
-					return db_target_map, false, nil
-				} 
 			}
 
 		}
@@ -310,14 +439,36 @@ func dbToDbCompat(db_list []*sqlx.DB, ignore_incompatibility bool) (db_target_ma
 }
 
 type structure_target_map map[string]string
-func dbToStructureCompat(db *sqlx.DB, structure Db_structure, ignore_incompatibility bool) (structure_target_map, bool, error) {
+func dbToStructureCompat(db *sqlx.DB, structure Db_structure, must_share_tablename bool) (structure_target_map, bool, error) {
 	var structure_target_map structure_target_map = make(structure_target_map)
 
 	var target compare_type_map = make(compare_type_map)
 	for tablename, table := range structure{
 		type_list := make([]string, len(table.Columns))
 		for i, col := range table.Columns {
-			type_list[i] = strings.Split(col, " ")[1]
+			col_f := strings.Fields(col)
+
+			_, ext := func() (name string, ext string) {
+
+				//has <col name> TEXT DEFAULT <smth> NOT NULL
+				if (len(col_f) > 5) && ((strings.ToUpper(col_f[len(col_f) - 2]) == "NOT") && (strings.ToUpper(col_f[len(col_f) - 4]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 5])))) {
+					return strings.Join(col_f[:len(col_f) - 5], " "), strings.Join(col_f[len(col_f) - 5:], " ")
+				}
+
+				//has <col name> TEXT DEFAULT <smth>
+				if (len(col_f) > 3) &&  (strings.ToUpper(col_f[len(col_f) - 2]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 3]))) {
+					return strings.Join(col_f[:len(col_f) - 3], " "), strings.Join(col_f[len(col_f) - 3:], " ")
+				}
+
+				//has <col name> TEXT
+				if (len(col_f) >= 2) && slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 1])) {
+					return strings.Join(col_f[:len(col_f) - 1], " "), col_f[len(col_f) - 1]
+				}
+				
+				return strings.Join(col_f, " "), "TEXT"
+			}()
+
+			type_list[i] = strings.Fields(ext)[0]
 		}
 		target[tablename] = type_list
 	}
@@ -331,6 +482,7 @@ func dbToStructureCompat(db *sqlx.DB, structure Db_structure, ignore_incompatibi
 		u := 0
 		match_array := make([]string, len(source)) 
 		for s_name, s_types := range source {
+			fmt.Println("comparing:", t_name, t_types, s_name, s_types)
 			if len(t_types) == len(s_types){
 				
 				if reflect.DeepEqual(t_types, s_types) {
@@ -349,6 +501,11 @@ func dbToStructureCompat(db *sqlx.DB, structure Db_structure, ignore_incompatibi
 
 		u++}
 
+		if !must_share_tablename { 
+			fmt.Println("    -- compatibility check failed")
+			return structure_target_map, false, nil
+		} 
+
 		for _, s_name := range match_array{
 			if s_name != "" {
 				structure_target_map[t_name] = s_name
@@ -356,10 +513,6 @@ func dbToStructureCompat(db *sqlx.DB, structure Db_structure, ignore_incompatibi
 			}
 		}	
 
-		if !ignore_incompatibility { 
-			fmt.Println("    -- compatibility check failed")
-			return structure_target_map, false, nil
-		} 
 	}
 
 	return structure_target_map, true, nil
@@ -792,23 +945,17 @@ func AddDataSource(path string, alias string) error {
 
 	i := 0
 
-	
-	for tablename, table := range structure {
+	if Mem != nil {
+		for _, c_statement := range structure.memTableCreateStatements(alias, false) {
+			_, err := Mem.Exec(c_statement)
+			if err != nil { return err }
+		}
+	}
+
+	for tablename, _ := range structure {
 		tablenames[i] = tablename
 		i++
 
-		if Mem != nil {
-			create_statement := "CREATE TABLE '" + alias + "_" + tablename //modified .tableCreateStatements()
-			create_statement += "'(" + strings.Join(table.Columns, ", ")
-			if len(table.Primary_key) != 0 {
-				create_statement += ", PRIMARY KEY("
-				create_statement += strings.Join(table.Primary_key, ", ") + ")"
-			}
-			create_statement += ");"
-
-			_, err := Mem.Exec(create_statement)
-			if err != nil { return err }
-		}
 	}
 
 	data_sources = append(data_sources, DataSource{Path: path, Alias: alias, Tablenames: tablenames})
@@ -929,27 +1076,18 @@ func ExtendDataSource(name string, structure Db_structure) error { //TODO: super
 	if err != nil { return err }
 	defer db.Close()
 
+	if Mem != nil {
+		for _, c_statement := range exStructure.memTableCreateStatements(alias, false) {
+			_, err := Mem.Exec(c_statement)
+			if err != nil { return err }
+		}
+	}
+
 	for e, statement := range exStructure.tableCreateStatements(false) {
 		_, err := db.Exec(statement)
 		if err != nil { return err }
 
-		tablename, table := tablenames[e], exStructure[tablenames[e]] 
-
-		if Mem != nil {
-			create_statement := "CREATE TABLE '" + alias + "_" + tablename //modified .tableCreateStatements()
-			create_statement += "'(" + strings.Join(table.Columns, ", ")
-			if len(table.Primary_key) != 0 {
-				create_statement += ", PRIMARY KEY("
-				create_statement += strings.Join(table.Primary_key, ", ") + ")"
-			}
-			create_statement += ");"
-
-			_, err := Mem.Exec(create_statement)
-			if err != nil { return err }
-			}
-
 		data_sources[ds_index].Tablenames = append(data_sources[ds_index].Tablenames, tablenames[e])
-
 	}
 
 	return nil
@@ -1296,16 +1434,8 @@ func InitMemory() error {
 			if err != nil { return err }
 		db.Close()
 
-		for tablename, table := range structure { //modified .tableCreateStatements()
-			create_statement := "CREATE TABLE '" + source.Alias + "_" + tablename 
-			create_statement += "'(" + strings.Join(table.Columns, ", ")
-			if len(table.Primary_key) != 0 {
-				create_statement += ", PRIMARY KEY("
-				create_statement += strings.Join(table.Primary_key, ", ") + ")"
-			}
-			create_statement += ");"
-	
-			_, err := Mem.Exec(create_statement)
+		for _, c_statement := range structure.memTableCreateStatements(source.Alias, false) {
+			_, err := Mem.Exec(c_statement)
 			if err != nil { return err }
 		}
 	}
@@ -1315,30 +1445,34 @@ func InitMemory() error {
 //Saves all tables of memory into their respective databases
 func SaveMemory() error {
 
-	mem_structure, err := structureFromDb(Mem)
-	if err != nil { return err }
+	if Mem != nil {
+		mem_structure, err := structureFromDb(Mem)
+		if err != nil { return err }
 
-	target_map := make(db_target_map)
-	target_map[Mem] = make(map[*sqlx.DB]map[string]string)
-	for mem_tablename := range mem_structure {
-		alias_tablename := strings.SplitN(mem_tablename, "_", 2) //shouldn't be able to not make 2, mem_tablename is generated programatically, buuuut...
-		if len(alias_tablename) != 2 {
-			return ErrFatalSaveException
+		target_map := make(db_target_map)
+		target_map[Mem] = make(map[*sqlx.DB]map[string]string)
+		for mem_tablename := range mem_structure {
+			alias_tablename := strings.SplitN(mem_tablename, "_", 2) //shouldn't be able to not make 2, mem_tablename is generated programatically, buuuut...
+			if len(alias_tablename) != 2 {
+				return ErrFatalSaveException
+			}
+
+			path, err := NameToPath(alias_tablename[0]) //shouldn't be able to error, buuut...
+			if err != nil { return err }
+
+			db, err := sqlx.Connect("sqlite3", path)
+			if err != nil { return err }
+			defer db.Close()
+
+			if target_map[Mem][db] == nil { target_map[Mem][db] = make(map[string]string) }
+			target_map[Mem][db][mem_tablename] = alias_tablename[1]
 		}
 
-		path, err := NameToPath(alias_tablename[0]) //shouldn't be able to error, buuut...
-		if err != nil { return err }
-
-		db, err := sqlx.Connect("sqlite3", path)
-		if err != nil { return err }
-		defer db.Close()
-
-		if target_map[Mem][db] == nil { target_map[Mem][db] = make(map[string]string) }
-		target_map[Mem][db][mem_tablename] = alias_tablename[1]
+		err = target_map.performMerge(false, "") 
+		return err
+	} else {
+		return nil
 	}
-
-	err = target_map.performMerge(false, "") 
-	return err
 }
 
 //Deletes all of memory (WITHOUT SAVING IT!), setting it back to a nil pointer, and making all operations take place directly on files. 
@@ -1354,9 +1488,9 @@ func EndMemory() error {
 }
 
 //Checks if the schema of <name> is the same as that of <structure> . 
-//strict = false -> Doesn't care about the primary key and column/table names (only number, order & datatypes of columns matter). 
-//strict = true -> Structures have to be equal in all aspects
-func CheckSourceStructure(name string, structure Db_structure, strict bool) (bool, error) {
+//strict = false -> Names of tables do NOT have to be the same. 
+//strict = true -> Names of tables have to be the same. 
+func CheckSourceStructure(name string, structure Db_structure, equal_tablenames bool) (bool, error) {
 	path, err := NameToPath(name)
 	if err != nil { return false, err }
 
@@ -1367,11 +1501,9 @@ func CheckSourceStructure(name string, structure Db_structure, strict bool) (boo
 	ex_structure, err := addReservedToStructure(structure)
 	if err != nil { return false, err }
 
-	if strict {
-		db_structure, err := structureFromDb(db)
-		if err != nil { return false, err }
-
-		return reflect.DeepEqual(db_structure, ex_structure), nil
+	if equal_tablenames {
+		_, compatible, err := dbToStructureCompat(db, ex_structure, true)
+		return compatible, err
 
 	} else {
 		_, compatible, err := dbToStructureCompat(db, ex_structure, false)
