@@ -11,10 +11,10 @@ import (
 func TestAddTestDelete(t *testing.T) {
 	db_path := "./test.db"
 
-	test_structure := dbops.Db_structure{"setďings": &dbops.Db_table{Columns: []string{"key TEXT", "value TEXT"}, Primary_key: []string{"key"}},
-										 "ta bl es ": &dbops.Db_table{Columns: []string{"table name TEXT", "table_columns TEXT", "table_pk TEXT"}},
+	test_structure := dbops.Db_structure{"setďings": &dbops.Db_table{Columns: []dbops.Db_col{{Name: "key", Ext: "TEXT"}, {Name: "value", Ext: "TEXT"}}, Primary_key: []string{"key"}},
+										 "ta bl es ": &dbops.Db_table{Columns: []dbops.Db_col{{Name: "table name", Ext: "TEXT"}, {Name: "table_columns", Ext: "TEXT"}, {Name: "table_pk", Ext: "TEXT"}}},
   										}
-	test_structure2 := dbops.Db_structure{"test": &dbops.Db_table{Columns: []string{"ey TEXT", "uy TEXT"}, Primary_key: []string{"ey"}}}
+	test_structure2 := dbops.Db_structure{"test": &dbops.Db_table{Columns: []dbops.Db_col{{Name: "ey", Ext: "TEXT"}, {Name: "uy", Ext: "TEXT"}}, Primary_key: []string{"ey"}}}
 
 	fmt.Println("CreateDataSource")
 	err := dbops.CreateDataSource(db_path, true)

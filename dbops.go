@@ -29,7 +29,6 @@ import (
 	- add adding of required structure to ExtendDataSource
 
 */
-var sqlite_datatypes = []string{"NULL", "INTEGER", "REAL", "TEXT", "BLOB"}
 
 var ErrBadColumnDefinition error = errors.New("ErrBadColumnDefinition (dbops) - Something was wrong with a column you requested to be created")
 var ErrUnknownSourceName error = errors.New("ErrUnknownSourceName error (dbops) - Check if this path/alias was added using AddDataSource()")
@@ -47,9 +46,14 @@ type Table_value struct {
 	Values []any //will be interpreted as Column = Values[0] OR Column = Values[1] ... 
 }
 
+type Db_col struct {
+	Name string
+	Ext string //something like "TEXT", "INTEGER DEFAULT 0 NOT NULL", etc...
+}
+
 type Db_table struct {
-	Columns      []string //formatted as []string{"name TEXT", "age INTEGER"}
-	Primary_key []string //formatted as []string{"age, name"}
+	Columns      []Db_col
+	Primary_key []string //a slice of Names of Db_cols (like []string{"age, name"}) 
 }
 
 type Db_structure map[string]*Db_table
@@ -63,8 +67,8 @@ var deleteHistory []*deleteHistItem
 
 var Mem *sqlx.DB
 
-var reserved_structure = Db_structure{"database_log": &Db_table{[]string{"key TEXT", "value TEXT"}, []string{"key"}}}
-var reserved_columns = []string{"DeleteState INTEGER DEFAULT 0 NOT NULL"} // these are also forced in reserved structures
+var reserved_structure = Db_structure{"database_log": &Db_table{[]Db_col{{Name: "key", Ext: "TEXT"}, {Name: "value", Ext: "TEXT"}}, []string{"key"}}}
+var reserved_columns = []Db_col{{Name: "DeleteState", Ext: "INTEGER DEFAULT 0 NOT NULL"}} // these are also forced in reserved structures
 
 type DataSource struct{
 	Path string //May be used as a "name". Outdated versions will be <filename>_<unix_millis> (<DD-MM-YYYY>).db
@@ -124,71 +128,25 @@ func (structure Db_structure) tableCreateStatements(if_not_exists bool) []string
 	i := 0
 	for tablename, table := range structure {
 
-		column_names := make([]string, len(table.Columns))
-		column_exts := make([]string, len(table.Columns))
-
-		pk_names := make([]string, len(table.Primary_key))
-		
-
-		for i, col := range table.Columns{
-
-			col_f := strings.Fields(col)
-
-			name, ext := func() (name string, ext string) {
-
-				//has <col name> TEXT DEFAULT <smth> NOT NULL
-				if (len(col_f) > 5) && ((strings.ToUpper(col_f[len(col_f) - 2]) == "NOT") && (strings.ToUpper(col_f[len(col_f) - 4]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 5])))) {
-					return strings.Join(col_f[:len(col_f) - 5], " "), strings.Join(col_f[len(col_f) - 5:], " ")
-				}
-
-				//has <col name> TEXT DEFAULT <smth>
-				if (len(col_f) > 3) &&  (strings.ToUpper(col_f[len(col_f) - 2]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 3]))) {
-					return strings.Join(col_f[:len(col_f) - 3], " "), strings.Join(col_f[len(col_f) - 3:], " ")
-				}
-
-				//has <col name> TEXT
-				if (len(col_f) >= 2) && slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 1])) {
-					return strings.Join(col_f[:len(col_f) - 1], " "), col_f[len(col_f) - 1]
-				}
-				
-				return strings.Join(col_f, " "), "TEXT"
-			}()
-
-			column_names[i] = name
-			column_exts[i] = ext
-
-			if (len(table.Primary_key) != 0) && slices.Contains(table.Primary_key, name) {
-				pk_names[i] = name
-			}
-
-		}
-
-
 		statement := "CREATE TABLE "
 		if if_not_exists {
 			statement += "IF NOT EXISTS "
 		}
 
 		statement += "'" + tablename + "'("
-		for i, col := range column_names {
-			statement += "'" + col + "' " + column_exts[i] + ", "
+		for _, col := range table.Columns {
+			statement += "'" + col.Name + "' " + col.Ext + ", "
 		}
 		statement = statement[:len(statement) - 2]
 
-
 		if len(table.Primary_key) != 0 {
-			statement += ", PRIMARY KEY("
-			for _, pk := range pk_names {
-				statement += "'" + pk + "', "
-			}
-			statement = statement[:len(statement) - 2] + ")"
+			statement += ", PRIMARY KEY('" + strings.Join(table.Primary_key, "', '") + "')"
 		}
 		statement += ");"
 
 		statement_list[i] = statement
 		i++
 	}
-	fmt.Println(statement_list)
 	return statement_list
 }
 
@@ -197,61 +155,20 @@ func (structure Db_structure) memTableCreateStatements(alias string, if_not_exis
 	i := 0
 	for tablename, table := range structure {
 
-		column_names := make([]string, len(table.Columns))
-		column_exts := make([]string, len(table.Columns))
-
-		pk_names := make([]string, len(table.Primary_key))
-		
-
-		for i, col := range table.Columns{
-
-			col_f := strings.Fields(col)
-
-			name, ext := func() (name string, ext string) {
-
-				//has <col name> TEXT DEFAULT <smth> NOT NULL
-				if (len(col_f) > 5) && ((strings.ToUpper(col_f[len(col_f) - 2]) == "NOT") && (strings.ToUpper(col_f[len(col_f) - 4]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 5])))) {
-					return strings.Join(col_f[:len(col_f) - 5], " "), strings.Join(col_f[len(col_f) - 5:], " ")
-				}
-
-				//has <col name> TEXT DEFAULT <smth>
-				if (len(col_f) > 3) &&  (strings.ToUpper(col_f[len(col_f) - 2]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 3]))) {
-					return strings.Join(col_f[:len(col_f) - 3], " "), strings.Join(col_f[len(col_f) - 3:], " ")
-				}
-
-				//has <col name> TEXT
-				if (len(col_f) >= 2) && slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 1])) {
-					return strings.Join(col_f[:len(col_f) - 1], " "), col_f[len(col_f) - 1]
-				}
-				
-				return strings.Join(col_f, " "), "TEXT"
-			}()
-
-			column_names[i] = name
-			column_exts[i] = ext
-
-			if (len(table.Primary_key) != 0) && slices.Contains(table.Primary_key, name) {
-				pk_names[i] = name
-			}
-
-		}
-
-
 		statement := "CREATE TABLE "
 		if if_not_exists {
 			statement += "IF NOT EXISTS "
 		}
-
 		statement += "'" + alias + "_" + tablename + "'("
-		for i, col := range column_names {
-			statement += "'" + col + "' " + column_exts[i] + ", "
+		for _, col := range table.Columns {
+			statement += "'" + col.Name + "' " + col.Ext + ", "
 		}
 		statement = statement[:len(statement) - 2]
 
 
 		if len(table.Primary_key) != 0 {
 			statement += ", PRIMARY KEY("
-			for _, pk := range pk_names {
+			for _, pk := range table.Primary_key {
 				statement += "'" + pk + "', "
 			}
 			statement = statement[:len(statement) - 2] + ")"
@@ -261,7 +178,6 @@ func (structure Db_structure) memTableCreateStatements(alias string, if_not_exis
 		statement_list[i] = statement
 		i++
 	}
-	fmt.Println(statement_list)
 	return statement_list
 }
 
@@ -302,7 +218,7 @@ func structureFromDb(db *sqlx.DB) (Db_structure, error) {
 				extra_props += " NOT NULL"
 			}
 
-			table_structure.Columns = append(table_structure.Columns, column.name + " " + column.datatype + extra_props)
+			table_structure.Columns = append(table_structure.Columns, Db_col{Name: column.name, Ext: column.datatype + extra_props})
 			if (column.pk){ table_structure.Primary_key = append(table_structure.Primary_key, column.name)}
 			}
 		structure[tablename] = &table_structure
@@ -337,7 +253,6 @@ func compareTypeFromDb(db *sqlx.DB) (compare_type_map, error) {
 		datatype string
 		allows_null bool
 		default_value sql.NullString
-		default_string string
 		pk bool
 	}
 	var structure compare_type_map = make(compare_type_map)
@@ -358,9 +273,16 @@ func compareTypeFromDb(db *sqlx.DB) (compare_type_map, error) {
 		
 			err := cols.Scan(&column.index, &column.name, &column.datatype, &column.allows_null, &column.default_value, &column.pk)
 			if err != nil {return structure, err}
-			column.default_string = column.default_value.String
 
-			type_list = append(type_list, column.datatype)
+			var extra_props string
+			if column.default_value.Valid {
+				extra_props += " DEFAULT " + column.default_value.String
+			}
+			if column.allows_null {
+				extra_props += " NOT NULL"
+			}
+
+			type_list = append(type_list, column.datatype + extra_props)
 		}
 		structure[tablename] = type_list
 	}
@@ -446,29 +368,7 @@ func dbToStructureCompat(db *sqlx.DB, structure Db_structure, must_share_tablena
 	for tablename, table := range structure{
 		type_list := make([]string, len(table.Columns))
 		for i, col := range table.Columns {
-			col_f := strings.Fields(col)
-
-			_, ext := func() (name string, ext string) {
-
-				//has <col name> TEXT DEFAULT <smth> NOT NULL
-				if (len(col_f) > 5) && ((strings.ToUpper(col_f[len(col_f) - 2]) == "NOT") && (strings.ToUpper(col_f[len(col_f) - 4]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 5])))) {
-					return strings.Join(col_f[:len(col_f) - 5], " "), strings.Join(col_f[len(col_f) - 5:], " ")
-				}
-
-				//has <col name> TEXT DEFAULT <smth>
-				if (len(col_f) > 3) &&  (strings.ToUpper(col_f[len(col_f) - 2]) == "DEFAULT") && (slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 3]))) {
-					return strings.Join(col_f[:len(col_f) - 3], " "), strings.Join(col_f[len(col_f) - 3:], " ")
-				}
-
-				//has <col name> TEXT
-				if (len(col_f) >= 2) && slices.Contains(sqlite_datatypes, strings.ToUpper(col_f[len(col_f) - 1])) {
-					return strings.Join(col_f[:len(col_f) - 1], " "), col_f[len(col_f) - 1]
-				}
-				
-				return strings.Join(col_f, " "), "TEXT"
-			}()
-
-			type_list[i] = strings.Fields(ext)[0]
+			type_list[i] = col.Ext
 		}
 		target[tablename] = type_list
 	}
@@ -765,26 +665,10 @@ func addReservedToStructure(structure Db_structure) (exStructure Db_structure, e
 		r_col_iter:
 		for _, r_col := range reserved_columns { //check if reserved columns exist
 
-			semiform_r_col := strings.FieldsFunc(r_col, quoteSplit)
-			var form_r_col string
-			if len(semiform_r_col) == 1 {
-				form_r_col = strings.Fields(semiform_r_col[0])[0]
-			} else {
-				form_r_col = semiform_r_col[0]
-			} 
-
 			for _, c_col := range c_table.Columns {
 
-				semiform_c_col := strings.FieldsFunc(c_col, quoteSplit)
-				var form_c_col string
-				if len(semiform_c_col) == 1 {
-					form_c_col = strings.Fields(semiform_c_col[0])[0]
-				} else {
-					form_c_col = semiform_c_col[0]
-				} 
-
-				if form_r_col == form_c_col {
-					if reflect.DeepEqual(r_col, c_col) {
+				if r_col.Name == c_col.Name {
+					if r_col.Ext == c_col.Ext {
 						continue r_col_iter
 					} else {
 						fmt.Println("dbops - non-compatible reserved column detected")
@@ -906,45 +790,23 @@ func AddDataSource(path string, alias string) error {
 		r_column_iter:
 		for _, r_column := range reserved_columns{
 
-			semiform_r_column := strings.FieldsFunc(r_column, quoteSplit)
-			var form_r_column string
-			if len(semiform_r_column) == 1 {
-				form_r_column = strings.Fields(semiform_r_column[0])[0]
-			} else {
-				form_r_column = semiform_r_column[0]
-			} 
-
 			for _, column := range table.Columns{
 				
-				semiform_column := strings.FieldsFunc(column, quoteSplit)
-				var form_column string
-				if len(semiform_column) == 1 {
-					form_column = strings.Fields(semiform_column[0])[0]
-				} else {
-					form_column = semiform_column[0]
-				}
-				
-				if form_r_column == form_column { //would mean that a reserved column name was present
-					if !reflect.DeepEqual(r_column, column) { // = it was definitelly not created by dbops
+				if r_column.Name == column.Name { //would mean that a reserved column name was present
+					if r_column.Ext == column.Ext {
+						continue r_column_iter //it was probably created by dbops, will leech off of it
+					} else {
 						fmt.Println("dbops - non-compatible reserved column detected")
 						return ErrIsReserved
-					} else {
-						continue r_column_iter //it was probably created by dbops, will leech off of it
 					}
 				} 
 			}
 
-			_, err = db.Exec(fmt.Sprintf("ALTER TABLE 'main'.'%s' ADD COLUMN %s", tablename, r_column))
+			_, err = db.Exec(fmt.Sprintf("ALTER TABLE 'main'.'%s' ADD COLUMN '%s'", tablename, r_column))
 			if err != nil { return err }
 			table.Columns = append(table.Columns, r_column)
 		}
 	}
-
-	
-	tablenames := make([]string, len(structure))
-
-	i := 0
-
 	if Mem != nil {
 		for _, c_statement := range structure.memTableCreateStatements(alias, false) {
 			_, err := Mem.Exec(c_statement)
@@ -952,10 +814,11 @@ func AddDataSource(path string, alias string) error {
 		}
 	}
 
-	for tablename, _ := range structure {
+	tablenames := make([]string, len(structure))
+	i := 0
+	for tablename := range structure {
 		tablenames[i] = tablename
 		i++
-
 	}
 
 	data_sources = append(data_sources, DataSource{Path: path, Alias: alias, Tablenames: tablenames})
@@ -1001,11 +864,6 @@ func RemoveDataSource(name string) error {
 	return ErrUnknownSourceName
 }
 
-func quoteSplit(r rune) bool {
-	return r == '\'' || r == '"' 
-}
-
-
 //TODO: consider checking if things in structure already exist in the database
 //Attempts to add all of <structure> into <name>. Will return error (from sqlx) if that tablename already exists. 
 //If Memory is enabled, will try to also add <structure> to it (as '<alias_from_name>_<tablename>'). 
@@ -1040,25 +898,9 @@ func ExtendDataSource(name string, structure Db_structure) error { //TODO: super
 	for tablename, table := range structure {
 		for _, r_column := range reserved_columns{
 
-			semiform_r_column := strings.FieldsFunc(r_column, quoteSplit)
-			var form_r_column string
-			if len(semiform_r_column) == 1 {
-				form_r_column = strings.Fields(semiform_r_column[0])[0]
-			} else {
-				form_r_column = semiform_r_column[0]
-			} 
-
 			for _, column := range table.Columns{
 				
-				semiform_column := strings.FieldsFunc(column, quoteSplit)
-				var form_column string
-				if len(semiform_column) == 1 {
-					form_column = strings.Fields(semiform_column[0])[0]
-				} else {
-					form_column = semiform_column[0]
-				}
-				
-				if (form_r_column == form_column) { //would mean that a reserved column name was requested
+				if (r_column.Name == column.Name) { //would mean that a reserved column name was requested
 					fmt.Println("dbops - non-compatible reserved column detected")
 					return ErrIsReserved
 				}
@@ -1475,6 +1317,145 @@ func SaveMemory() error {
 	}
 }
 
+//uses SELECT COUNT(*) to get the actual number of elements, which is very slow. 
+//Ignores Memory (always counts on disk). 
+func CountTable(table string) (int, error) {
+	name, tablename, err := FormatUInputTable(table)
+	if err != nil { return 0, err }
+
+	path, _ := NameToPath(name)
+
+	db, err := sqlx.Connect("sqlite3", path)
+	if err != nil { return 0, err }
+	defer db.Close()
+
+	var count int
+	err = db.Get(&count, fmt.Sprintf("SELECT COUNT(*) FROM '%s';", tablename))
+	if err != nil { return count, err }
+
+	return count, nil
+}
+
+//uses SELECT COUNT(*) to get the actual number of elements, which is very slow. 
+//Ignores disk (always counts in Memory). 
+func CountMemTable(table string) (int, error) {
+	if Mem == nil {
+		return 0, nil
+	}
+
+	name, tablename, err := FormatUInputTable(table)
+	if err != nil { return 0, err }
+
+	alias, _ := NameToAlias(name)
+
+	var count int
+	err = Mem.Get(&count, fmt.Sprintf("SELECT COUNT(*) FROM '%s_%s';", alias, tablename))
+	if err != nil { return count, err }
+
+	return count, nil
+}
+
+//Adds <columns> to <table>'s schema. 
+func ExtendTable(table string, columns []Db_col) (error) {
+	name, tablename, err := FormatUInputTable(table)
+	if err != nil { return err }
+
+	path, _ := NameToPath(name)
+
+	db, err := sqlx.Connect("sqlite3", path)
+	if err != nil { return err }
+	defer db.Close()
+
+	for _, col := range columns {
+		_, err = db.Exec("ALTER TABLE '%s' ADD COLUMN '%s' %s;", tablename, col.Name, col.Ext)
+		if err != nil { return err }
+	}
+
+	if Mem != nil {
+		alias, _ := NameToAlias(name)
+
+		for _, col := range columns {
+			_, err = Mem.Exec("ALTER TABLE '%s_%s' ADD COLUMN '%s' %s;", alias, tablename, col.Name, col.Ext)
+			if err != nil { return err }
+		}
+	}	
+
+	return nil
+}
+
+//Removes <columns> (which are column names) from <table>'s schema. (by creating a new table with the same name (and data), making it slow) 
+func ShortenTable(table string, remove_columns []string) (error) {
+	name, tablename, err := FormatUInputTable(table)
+	if err != nil { return err }
+
+	path, _ := NameToPath(name)
+
+	db, err := sqlx.Connect("sqlite3", path)
+	if err != nil { return err }
+	defer db.Close()
+
+	structure, err := structureFromDb(db)
+	if err != nil { return err }
+	old_table := structure[tablename]
+
+	var ncol_names []string
+	var new_table Db_table
+	for _, col := range old_table.Columns {
+		if !slices.Contains(remove_columns, col.Name) {
+			new_table.Columns = append(new_table.Columns, col)
+			ncol_names = append(ncol_names, col.Name)
+		}
+	}
+
+	for _, key := range old_table.Primary_key {
+		if !slices.Contains(remove_columns, key) {
+			new_table.Primary_key = append(new_table.Primary_key, key)
+		}
+	}
+
+	unf_cr_statement := "CREATE %s TABLE '%s' (" //modified .tableCreateStatements()
+		for _, col := range new_table.Columns {
+			unf_cr_statement += "'" + col.Name + "' " + col.Ext + ", "
+		}
+		unf_cr_statement = unf_cr_statement[:len(unf_cr_statement) - 2]
+
+		if len(new_table.Primary_key) != 0 {
+			unf_cr_statement += ", PRIMARY KEY('" + strings.Join(new_table.Primary_key, "', '") + "')"
+		}
+	unf_cr_statement += ");"
+
+	unf_insert_select := "INSERT INTO '%s' SELECT "
+	unf_insert_select += "'" + strings.Join(ncol_names, "', '") + "' "
+	unf_insert_select += "FROM '%s';"
+
+
+	tx, err := db.Beginx()
+	if err != nil { return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+	err = tx.Commit()
+	if err != nil { return err }
+
+	return nil
+}
+
 //Deletes all of memory (WITHOUT SAVING IT!), setting it back to a nil pointer, and making all operations take place directly on files. 
 //You may run InitMemory() to make a new Intermediary memory after this. 
 //Will return nil (no error) if memory is already closed. 
@@ -1530,26 +1511,10 @@ func CheckTableStructure(table string, db_table *Db_table) (bool, error) {
 	r_col_iter:
 	for _, r_col := range reserved_columns { //check if reserved columns exist
 
-		semiform_r_col := strings.FieldsFunc(r_col, quoteSplit)
-		var form_r_col string
-		if len(semiform_r_col) == 1 {
-			form_r_col = strings.Fields(semiform_r_col[0])[0]
-		} else {
-			form_r_col = semiform_r_col[0]
-		} 
-
 		for _, c_col := range c_table.Columns {
 
-			semiform_c_col := strings.FieldsFunc(c_col, quoteSplit)
-			var form_c_col string
-			if len(semiform_c_col) == 1 {
-				form_c_col = strings.Fields(semiform_c_col[0])[0]
-			} else {
-				form_c_col = semiform_c_col[0]
-			} 
-
-			if form_r_col == form_c_col {
-				if reflect.DeepEqual(r_col, c_col) {
+			if r_col.Name == c_col.Name {
+				if r_col.Ext == c_col.Ext {
 					continue r_col_iter
 				} else {
 					fmt.Println("dbops - non-compatible reserved column detected")
