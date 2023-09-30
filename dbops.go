@@ -36,7 +36,7 @@ var ErrIsNotDatabase error = errors.New("ErrIsNotDatabase error (dbops) - The su
 var ErrDatabaseMerge error = errors.New("ErrDatabaseMerge error (dbops) - The supplied databases were not compatible, consider allowing skip_incompatible_tables?")
 var ErrInvalidTable error = errors.New("ErrInvalidTable error (dbops) - The supplied param was not '<alias>.<tablename>' or '<tablename>'")
 var ErrUnknownTableName error = errors.New("ErrUnknownTableName error (dbops) - The target database does not have a table of this name")
-var ErrInvalidData error = errors.New("ErrInvalidData error (dbops) - The supplied data is not compatible with its target table, check the number of columns")
+var ErrInvalidData error = errors.New("ErrInvalidData error (dbops) - The supplied data/params is/are wrong in some way")
 var ErrIsReserved error = errors.New("ErrIsReserved error (dbops) - Part of the loaded/requested structure is needed by dbops, rename it - check for a 'DeleteState' column")
 var ErrIsNotAllowedChar error = errors.New("ErrIsNotAllowedChar error (dbops) - The supplied DataSource alias contained the '_' character")
 var ErrFatalSaveException error = errors.New("ErrFatalSaveException error (dbops) - Failed to save memory to disk due to internal data error...this shouldn't be possible")
@@ -98,7 +98,6 @@ func NameToAlias(name string) (string, error) {
 //Here to save me the hassle of writing it out each time, use it if you like. :/ 
 func FormatUInputTable(table string) (string, string, error) {
 	split_table := strings.Split(table, ".")
-	fmt.Println(table, split_table, len(split_table))
 	if len(split_table) > 2 { 
 		return "", "", ErrInvalidTable 
 
@@ -382,9 +381,7 @@ func dbToStructureCompat(db *sqlx.DB, structure Db_structure, must_share_tablena
 		u := 0
 		match_array := make([]string, len(source)) 
 		for s_name, s_types := range source {
-			fmt.Println("comparing:", t_name, t_types, s_name, s_types)
 			if len(t_types) == len(s_types){
-				
 				if reflect.DeepEqual(t_types, s_types) {
 
 					if s_name == t_name {
@@ -1384,6 +1381,7 @@ func ExtendTable(table string, columns []Db_col) (error) {
 }
 
 //Removes <columns> (which are column names) from <table>'s schema. (by creating a new table with the same name (and data), making it slow) 
+//Uses INSERT OR IGNORE, so watch out for removing a primary key. 
 func ShortenTable(table string, remove_columns []string) (error) {
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return err }
@@ -1413,7 +1411,7 @@ func ShortenTable(table string, remove_columns []string) (error) {
 		}
 	}
 
-	unf_cr_statement := "CREATE %s TABLE '%s' (" //modified .tableCreateStatements()
+	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
 		for _, col := range new_table.Columns {
 			unf_cr_statement += "'" + col.Name + "' " + col.Ext + ", "
 		}
@@ -1424,7 +1422,7 @@ func ShortenTable(table string, remove_columns []string) (error) {
 		}
 	unf_cr_statement += ");"
 
-	unf_insert_select := "INSERT INTO '%s' SELECT "
+	unf_insert_select := "INSERT OR IGNORE INTO '%s' SELECT "
 	unf_insert_select += "'" + strings.Join(ncol_names, "', '") + "' "
 	unf_insert_select += "FROM '%s';"
 
@@ -1452,6 +1450,143 @@ func ShortenTable(table string, remove_columns []string) (error) {
 
 	err = tx.Commit()
 	if err != nil { return err }
+
+	if Mem != nil {
+		alias, _ := NameToAlias(name)
+		tablename = alias + "_" + tablename
+
+		tx, err := Mem.Beginx()
+		if err != nil { return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+		err = tx.Commit()
+		if err != nil { return err }
+	}
+
+	return nil
+}
+
+//Renames [key]s of <rename_map> to corresponding [value]s of <rename_map>, and reorders them according to <new_order> (which contains [value]s of map). (achieved by creating a new table with the same name (and data), making it slow) 
+//If an existing column of the old table is not mentioned in <rename_map>, it will not be copied into the new one. 
+func RenameTableCols(table string, rename_map map[string]string, new_order []string) (error) {
+	if len(new_order) != len(rename_map) { return ErrInvalidData }
+
+	name, tablename, err := FormatUInputTable(table)
+	if err != nil { return err }
+
+	path, _ := NameToPath(name)
+
+	db, err := sqlx.Connect("sqlite3", path)
+	if err != nil { return err }
+	defer db.Close()
+
+	structure, err := structureFromDb(db)
+	if err != nil { return err }
+	old_table := structure[tablename]
+
+	var ncol_names []string
+	var oldcol_names []string
+	var new_table Db_table
+	for _, n_colname := range new_order {
+		for _, org_col := range old_table.Columns{
+			if n_colname == org_col.Name {
+				new_table.Columns = append(new_table.Columns, Db_col{Name: rename_map[org_col.Name], Ext: org_col.Ext})
+				ncol_names = append(ncol_names, rename_map[org_col.Name])
+				oldcol_names = append(oldcol_names, org_col.Name)
+			}
+		}
+
+		for _, key := range old_table.Primary_key {
+			if n_colname == rename_map[key] {
+				new_table.Primary_key = append(new_table.Primary_key, n_colname)
+			}
+		}
+	}
+
+	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
+		for _, col := range new_table.Columns {
+			unf_cr_statement += "'" + col.Name + "' " + col.Ext + ", "
+		}
+		unf_cr_statement = unf_cr_statement[:len(unf_cr_statement) - 2]
+
+		if len(new_table.Primary_key) != 0 {
+			unf_cr_statement += ", PRIMARY KEY('" + strings.Join(new_table.Primary_key, "', '") + "')"
+		}
+	unf_cr_statement += ");"
+
+	unf_insert_select := "INSERT OR IGNORE INTO '%s' SELECT "
+	unf_insert_select += "'" + strings.Join(oldcol_names, "', '") + "' "
+	unf_insert_select += "FROM '%s';"
+
+	tx, err := db.Beginx()
+	if err != nil { return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+	err = tx.Commit()
+	if err != nil { return err }
+
+	if Mem != nil {
+		alias, _ := NameToAlias(name)
+		tablename = alias + "_" + tablename
+
+		tx, err := Mem.Beginx()
+		if err != nil { return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+		err = tx.Commit()
+		if err != nil { return err }
+	}
 
 	return nil
 }
