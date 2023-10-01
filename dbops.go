@@ -40,6 +40,7 @@ var ErrInvalidData error = errors.New("ErrInvalidData error (dbops) - The suppli
 var ErrIsReserved error = errors.New("ErrIsReserved error (dbops) - Part of the loaded/requested structure is needed by dbops, rename it - check for a 'DeleteState' column")
 var ErrIsNotAllowedChar error = errors.New("ErrIsNotAllowedChar error (dbops) - The supplied DataSource alias contained the '_' character")
 var ErrFatalSaveException error = errors.New("ErrFatalSaveException error (dbops) - Failed to save memory to disk due to internal data error...this shouldn't be possible")
+var ErrOutOfRange error = errors.New("ErrOutOfRange (dbops) - The supplied index was bigger than the table/slice length (or less than 0)")
 
 type Table_value struct {
 	Column string //name of the column (inside your database)
@@ -49,14 +50,10 @@ type Table_value struct {
 type Db_col struct {
 	Name string
 	Ext string //something like "TEXT", "INTEGER DEFAULT 0 NOT NULL", etc...
+	Pk bool //Determins if the column is a part of the primary key
 }
 
-type Db_table struct {
-	Columns      []Db_col
-	Primary_key []string //a slice of Names of Db_cols (like []string{"age, name"}) 
-}
-
-type Db_structure map[string]*Db_table
+type Db_structure map[string][]Db_col
 
 type deleteHistItem struct {
 	table string
@@ -67,7 +64,7 @@ var deleteHistory []*deleteHistItem
 
 var Mem *sqlx.DB
 
-var reserved_structure = Db_structure{"database_log": &Db_table{[]Db_col{{Name: "key", Ext: "TEXT"}, {Name: "value", Ext: "TEXT"}}, []string{"key"}}}
+var reserved_structure = Db_structure{"database_log": []Db_col{{Name: "key", Ext: "TEXT"}, {Name: "value", Ext: "TEXT"}}}
 var reserved_columns = []Db_col{{Name: "DeleteState", Ext: "INTEGER DEFAULT 0 NOT NULL"}} // these are also forced in reserved structures
 
 type DataSource struct{
@@ -75,7 +72,8 @@ type DataSource struct{
 	Alias string //May be used as a "name". 
 	Tablenames []string //Exists because of optimalization reasons (lookup inside of FormatUInputTable())
 }
-var data_sources []DataSource
+
+var data_sources []*DataSource
 
 
 //Expects a DataSource's alias || path. Returns the DataSource's path
@@ -131,15 +129,18 @@ func (structure Db_structure) tableCreateStatements(if_not_exists bool) []string
 		if if_not_exists {
 			statement += "IF NOT EXISTS "
 		}
+		var pk []string
 
 		statement += "'" + tablename + "'("
-		for _, col := range table.Columns {
+		for _, col := range table {
 			statement += "'" + col.Name + "' " + col.Ext + ", "
+			
+			if col.Pk { pk = append(pk, col.Name) }
 		}
 		statement = statement[:len(statement) - 2]
 
-		if len(table.Primary_key) != 0 {
-			statement += ", PRIMARY KEY('" + strings.Join(table.Primary_key, "', '") + "')"
+		if len(pk) > 0 {
+			statement += ", PRIMARY KEY('" + strings.Join(pk, "', '") + "')"
 		}
 		statement += ");"
 
@@ -158,19 +159,19 @@ func (structure Db_structure) memTableCreateStatements(alias string, if_not_exis
 		if if_not_exists {
 			statement += "IF NOT EXISTS "
 		}
+		var pk []string
+
 		statement += "'" + alias + "_" + tablename + "'("
-		for _, col := range table.Columns {
+		for _, col := range table {
 			statement += "'" + col.Name + "' " + col.Ext + ", "
+
+			if col.Pk { pk = append(pk, col.Name) }
 		}
 		statement = statement[:len(statement) - 2]
 
 
-		if len(table.Primary_key) != 0 {
-			statement += ", PRIMARY KEY("
-			for _, pk := range table.Primary_key {
-				statement += "'" + pk + "', "
-			}
-			statement = statement[:len(statement) - 2] + ")"
+		if len(pk) > 0 {
+			statement += ", PRIMARY KEY('" + strings.Join(pk, "', '") + "')"
 		}
 		statement += ");"
 
@@ -178,6 +179,50 @@ func (structure Db_structure) memTableCreateStatements(alias string, if_not_exis
 		i++
 	}
 	return statement_list
+}
+
+func tableFromDb(db *sqlx.DB, tablename string) ([]Db_col, error) {
+	type column_info struct{
+		index int
+		name string
+		datatype string
+		allows_null bool
+		default_value sql.NullString
+		pk bool
+	}
+
+	var table []Db_col
+
+	var table_list []string
+	if err := db.Select(&table_list, "SELECT name FROM sqlite_master WHERE type='table';"); err != nil {
+		return table, err
+	}
+
+	if !slices.Contains(table_list, tablename) { return table, ErrUnknownTableName }
+
+	cols, err := db.Queryx(fmt.Sprintf("PRAGMA table_info('%s');", tablename))
+	if err != nil {return table, err}
+	defer cols.Close()
+
+	for cols.Next() {
+		var column column_info
+		
+		err := cols.Scan(&column.index, &column.name, &column.datatype, &column.allows_null, &column.default_value, &column.pk)
+		if err != nil { return table, err }
+
+		var extra_props string  
+
+		if column.default_value.Valid {
+			extra_props += " DEFAULT " + column.default_value.String
+		}
+		if column.allows_null {
+			extra_props += " NOT NULL"
+		}
+
+		table = append(table, Db_col{Name: column.name, Ext: column.datatype + extra_props, Pk: column.pk})
+	}
+	
+	return table, nil
 }
 
 func structureFromDb(db *sqlx.DB) (Db_structure, error) {
@@ -197,16 +242,17 @@ func structureFromDb(db *sqlx.DB) (Db_structure, error) {
 	}
 	
 	for _, tablename := range table_list {
-		var table_structure Db_table
+		var table_structure []Db_col
 
 		cols, err := db.Queryx(fmt.Sprintf("PRAGMA table_info('%s');", tablename))
 		if err != nil {return structure, err}
+		defer cols.Close()
 
 		for cols.Next() {
 			var column column_info
 		
 			err := cols.Scan(&column.index, &column.name, &column.datatype, &column.allows_null, &column.default_value, &column.pk)
-			if err != nil {log.Fatalln(err)}
+			if err != nil { return structure, err }
 
 			var extra_props string  
 
@@ -217,11 +263,9 @@ func structureFromDb(db *sqlx.DB) (Db_structure, error) {
 				extra_props += " NOT NULL"
 			}
 
-			table_structure.Columns = append(table_structure.Columns, Db_col{Name: column.name, Ext: column.datatype + extra_props})
-			if (column.pk){ table_structure.Primary_key = append(table_structure.Primary_key, column.name)}
+			table_structure = append(table_structure, Db_col{Name: column.name, Ext: column.datatype + extra_props, Pk: column.pk})
 			}
-		structure[tablename] = &table_structure
-		cols.Close()
+		structure[tablename] = table_structure
 	}
 	return structure, nil
 }
@@ -285,7 +329,6 @@ func compareTypeFromDb(db *sqlx.DB) (compare_type_map, error) {
 		}
 		structure[tablename] = type_list
 	}
-	fmt.Println(structure)
 	return structure, nil
 }
 
@@ -336,7 +379,7 @@ func dbToDbCompat(db_list []*sqlx.DB, must_share_tablename bool) (db_target_map,
 					}
 				u++}
 
-				if !must_share_tablename { 
+				if must_share_tablename { 
 					fmt.Println("    -- compatibility check failed")
 					return db_target_map, false, nil
 				} 
@@ -365,8 +408,8 @@ func dbToStructureCompat(db *sqlx.DB, structure Db_structure, must_share_tablena
 
 	var target compare_type_map = make(compare_type_map)
 	for tablename, table := range structure{
-		type_list := make([]string, len(table.Columns))
-		for i, col := range table.Columns {
+		type_list := make([]string, len(table))
+		for i, col := range table {
 			type_list[i] = col.Ext
 		}
 		target[tablename] = type_list
@@ -398,7 +441,7 @@ func dbToStructureCompat(db *sqlx.DB, structure Db_structure, must_share_tablena
 
 		u++}
 
-		if !must_share_tablename { 
+		if must_share_tablename { 
 			fmt.Println("    -- compatibility check failed")
 			return structure_target_map, false, nil
 		} 
@@ -622,7 +665,12 @@ func LoadIntoMemory(table string, order_clause string, index int, count int) (in
 
 	mem_structure, err := structureFromDb(Mem)
 	if err != nil { return 0, err }
-	mem_table_pk := strings.Join(mem_structure[mem_tablename].Primary_key, ", ")
+
+	var mem_table_keys []string
+	for _, col := range mem_structure[mem_tablename] {
+		if col.Pk { mem_table_keys = append(mem_table_keys, col.Name) }
+	}
+	mem_table_pk := strings.Join(mem_table_keys, ", ")
 
 	insert_statement := fmt.Sprintf("INSERT OR IGNORE INTO 'main'.'%s' SELECT DISTICT %s FROM 'source'.'%s' %s LIMIT %d OFFSET %d;", mem_tablename, mem_table_pk, tablename, order_clause, count, index)
 	_, err = joined_db.Exec(insert_statement)
@@ -644,12 +692,15 @@ func addReservedToStructure(structure Db_structure) (exStructure Db_structure, e
 	var presentResTables []string
 
 	for o_tablename, o_table := range structure { 
-		c_table := *o_table
+		c_table := make([]Db_col, len(o_table)) 
+		copy(c_table, o_table)
 
 		r_table, exists := reserved_structure[o_tablename] //check if reserved table exists	
 		if exists {
-			ex_r_table := *r_table
-			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
+			ex_r_table := make([]Db_col, len(r_table))
+			copy(ex_r_table, r_table)
+
+			ex_r_table = append(ex_r_table, reserved_columns...)
 
 			if reflect.DeepEqual(c_table, ex_r_table) {
 				presentResTables = append(presentResTables, o_tablename)
@@ -662,7 +713,7 @@ func addReservedToStructure(structure Db_structure) (exStructure Db_structure, e
 		r_col_iter:
 		for _, r_col := range reserved_columns { //check if reserved columns exist
 
-			for _, c_col := range c_table.Columns {
+			for _, c_col := range c_table {
 
 				if r_col.Name == c_col.Name {
 					if r_col.Ext == c_col.Ext {
@@ -674,19 +725,21 @@ func addReservedToStructure(structure Db_structure) (exStructure Db_structure, e
 				}
 
 			}
-			c_table.Columns = append(c_table.Columns, r_col) //add reserved column
+			c_table = append(c_table, r_col) //add reserved column
 		}
 
-		exStructure[o_tablename] = &c_table //add the modified (copy of) table to new structure
+		exStructure[o_tablename] = c_table //add the modified (copy of) table to new structure
 	}
 
 	for r_tablename, r_table := range reserved_structure {
 		if slices.Contains(presentResTables, r_tablename) { continue } //= already is in the database
 
-		ex_r_table := *r_table
-		ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
+		ex_r_table := make([]Db_col, len(r_table))
+		copy(ex_r_table, r_table)
 
-		exStructure[r_tablename] = &ex_r_table
+		ex_r_table = append(ex_r_table, reserved_columns...)
+
+		exStructure[r_tablename] = ex_r_table
 	}
 
 	return exStructure, nil
@@ -758,23 +811,20 @@ func AddDataSource(path string, alias string) error {
 		
 		table, exists := structure[r_tablename]
 
-		if exists {
-			ex_r_table := *r_table
-			ex_r_table.Columns = append(ex_r_table.Columns, reserved_columns...)
+		ex_r_table := make([]Db_col, len(r_table))
+		copy(ex_r_table, r_table)
+		ex_r_table = append(ex_r_table, reserved_columns...)
 
-			if !reflect.DeepEqual(*table, ex_r_table) {
+		if exists {
+			if !reflect.DeepEqual(table, ex_r_table) {
 
 				fmt.Println("dbops - non-compatible reserved table detected")
 				return ErrIsReserved
 			}
 
 		} else {
-
-			ex_r_table_copy := *r_table
-			ex_r_table_copy.Columns = append(ex_r_table_copy.Columns, reserved_columns...)
-
-			toBeAdded_structure[r_tablename] = &ex_r_table_copy
-			structure[r_tablename] = &ex_r_table_copy
+			toBeAdded_structure[r_tablename] = ex_r_table
+			structure[r_tablename] = ex_r_table
 		}
 	}
 
@@ -787,7 +837,7 @@ func AddDataSource(path string, alias string) error {
 		r_column_iter:
 		for _, r_column := range reserved_columns{
 
-			for _, column := range table.Columns{
+			for _, column := range table{
 				
 				if r_column.Name == column.Name { //would mean that a reserved column name was present
 					if r_column.Ext == column.Ext {
@@ -801,7 +851,7 @@ func AddDataSource(path string, alias string) error {
 
 			_, err = db.Exec(fmt.Sprintf("ALTER TABLE 'main'.'%s' ADD COLUMN '%s'", tablename, r_column.Name + " " + r_column.Ext))
 			if err != nil { return err }
-			table.Columns = append(table.Columns, r_column)
+			table = append(table, r_column)
 		}
 	}
 	if Mem != nil {
@@ -818,11 +868,11 @@ func AddDataSource(path string, alias string) error {
 		i++
 	}
 
-	data_sources = append(data_sources, DataSource{Path: path, Alias: alias, Tablenames: tablenames})
+	data_sources = append(data_sources, &DataSource{Path: path, Alias: alias, Tablenames: tablenames})
 	return nil
 }
 
-//Deletes the underlying file of <name>, the checks for an error (from the os.Remove()), if no error occured, removes <name> from data_sources.
+//Deletes the underlying file of <name>, the checks for an error (from the os.Remove()). Does not remove <name> from data_sources, it is your responsibility to call RemoveDataSource(). 
 func DeleteDataSource(name string) error {
 	path, err := NameToPath(name)
 	if err != nil { return err }
@@ -836,7 +886,6 @@ func DeleteDataSource(name string) error {
 
 //Removes <name> from data_sources, does not delete the underlying file. 
 //If Memory is enabled, will DROP (!!) all in-memory tables originating from this DataSource. 
-//If you wish to delete the underlying file, use DeleteDataSource().
 func RemoveDataSource(name string) error {
 	for i, source := range data_sources{
 		if (name == source.Path) || (name == source.Alias) { 
@@ -848,7 +897,7 @@ func RemoveDataSource(name string) error {
 
 				for _, tablename := range source.Tablenames {
 					drop_statement := "DROP TABLE '"
-					drop_statement += source.Alias + "_" + tablename + "'"
+					drop_statement += source.Alias + "_" + tablename + "'" + ";"
 					_, err := Mem.Exec(drop_statement)
 					if err != nil { return err }
 				} 
@@ -895,7 +944,7 @@ func ExtendDataSource(name string, structure Db_structure) error { //TODO: super
 	for tablename, table := range structure {
 		for _, r_column := range reserved_columns{
 
-			for _, column := range table.Columns{
+			for _, column := range table{
 				
 				if (r_column.Name == column.Name) { //would mean that a reserved column name was requested
 					fmt.Println("dbops - non-compatible reserved column detected")
@@ -903,9 +952,11 @@ func ExtendDataSource(name string, structure Db_structure) error { //TODO: super
 				}
 			}
 		}
-		c_ex_table := *table
-		c_ex_table.Columns = append(c_ex_table.Columns, reserved_columns...)
-		exStructure[tablename] = &c_ex_table
+		ex_table := make([]Db_col, len(table))
+		copy(ex_table, table)
+		ex_table = append(ex_table, reserved_columns...)
+
+		exStructure[tablename] = ex_table
 		tablenames[i] = tablename
 		i++
 	}
@@ -1352,8 +1403,8 @@ func CountMemTable(table string) (int, error) {
 	return count, nil
 }
 
-//Adds <columns> to <table>'s schema. 
-func ExtendTable(table string, columns []Db_col) (error) {
+//Adds <remove_columns> to <table>'s schema. (by creating a new table with the same name (and data), making it slow) 
+func ExtendTable(table string, columns []Db_col) (error) { //TODO: edit
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return err }
 
@@ -1363,26 +1414,106 @@ func ExtendTable(table string, columns []Db_col) (error) {
 	if err != nil { return err }
 	defer db.Close()
 
-	for _, col := range columns {
-		_, err = db.Exec(fmt.Sprintf("ALTER TABLE '%s' ADD COLUMN '%s' %s;", tablename, col.Name, col.Ext))
-		if err != nil { return err }
+	old_table, err := tableFromDb(db, tablename)
+	if err != nil { return err }
+
+	var pk []string
+	var new_table []Db_col
+	var new_names []string
+	for _, col := range old_table {
+		for _, r_col := range reserved_columns {
+			if r_col.Name == col.Name { continue }
+		}
+		new_names = append(new_names, col.Name)
+		if col.Pk { pk = append(pk, col.Name) }
 	}
+	new_table = append(new_table, old_table...)
+
+	for _, a_col := range columns {
+		for _, r_col := range reserved_columns {
+			if r_col.Name == a_col.Name { return ErrIsReserved }
+		}
+		new_names = append(new_names, a_col.Name)
+		if a_col.Pk { pk = append(pk, a_col.Name) }
+	}
+	new_table = append(new_table, columns...)
+	new_table = append(new_table, reserved_columns...)
+
+	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
+		for _, col := range new_table {
+			unf_cr_statement += "'" + col.Name + "' " + col.Ext + ", "
+			if col.Pk { pk = append(pk, col.Name) }
+		}
+		unf_cr_statement = unf_cr_statement[:len(unf_cr_statement) - 2]
+
+		if len(pk) > 0 {
+			unf_cr_statement += ", PRIMARY KEY('" + strings.Join(pk, "', '") + "')"
+		}
+	unf_cr_statement += ");"
+
+	unf_insert_select := "INSERT OR IGNORE INTO '%s' SELECT "
+	unf_insert_select += "'" + strings.Join(new_names, "', '") + "' "
+	unf_insert_select += "FROM '%s';"
+
+	tx, err := db.Beginx()
+	if err != nil { return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
+		if err != nil { tx.Rollback(); return err }
+
+	err = tx.Commit()
+	if err != nil { return err }
 
 	if Mem != nil {
 		alias, _ := NameToAlias(name)
+		tablename = alias + "_" + tablename
 
-		for _, col := range columns {
-			_, err = Mem.Exec(fmt.Sprintf("ALTER TABLE '%s_%s' ADD COLUMN '%s' %s;", alias, tablename, col.Name, col.Ext))
-			if err != nil { return err }
-		}
-	}	
+		tx, err := Mem.Beginx()
+		if err != nil { return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
+			if err != nil { tx.Rollback(); return err }
+
+		err = tx.Commit()
+		if err != nil { return err }
+	}
 
 	return nil
 }
 
-//Removes <columns> (which are column names) from <table>'s schema. (by creating a new table with the same name (and data), making it slow) 
+//Removes <remove_columns> from <table>'s schema. (by creating a new table with the same name (and data), making it slow) 
 //Uses INSERT OR IGNORE, so watch out for removing a primary key. 
-func ShortenTable(table string, remove_columns []string) (error) {
+func ShortenTable(table string, remove_columns []Db_col) (error) {
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return err }
 
@@ -1392,33 +1523,29 @@ func ShortenTable(table string, remove_columns []string) (error) {
 	if err != nil { return err }
 	defer db.Close()
 
-	structure, err := structureFromDb(db)
+	old_table, err := tableFromDb(db, tablename)
 	if err != nil { return err }
-	old_table := structure[tablename]
 
 	var ncol_names []string
-	var new_table Db_table
-	for _, col := range old_table.Columns {
-		if !slices.Contains(remove_columns, col.Name) {
-			new_table.Columns = append(new_table.Columns, col)
+	var new_table []Db_col
+	for _, col := range old_table {
+		if !slices.Contains(remove_columns, col) {
+			new_table = append(new_table, col)
 			ncol_names = append(ncol_names, col.Name)
 		}
 	}
 
-	for _, key := range old_table.Primary_key {
-		if !slices.Contains(remove_columns, key) {
-			new_table.Primary_key = append(new_table.Primary_key, key)
-		}
-	}
+	var pk []string
 
 	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
-		for _, col := range new_table.Columns {
+		for _, col := range new_table {
 			unf_cr_statement += "'" + col.Name + "' " + col.Ext + ", "
+			if col.Pk { pk = append(pk, col.Name) }
 		}
 		unf_cr_statement = unf_cr_statement[:len(unf_cr_statement) - 2]
 
-		if len(new_table.Primary_key) != 0 {
-			unf_cr_statement += ", PRIMARY KEY('" + strings.Join(new_table.Primary_key, "', '") + "')"
+		if len(pk) > 0 {
+			unf_cr_statement += ", PRIMARY KEY('" + strings.Join(pk, "', '") + "')"
 		}
 	unf_cr_statement += ");"
 
@@ -1483,11 +1610,10 @@ func ShortenTable(table string, remove_columns []string) (error) {
 	return nil
 }
 
-//Renames [key]s of <rename_map> to corresponding [value]s of <rename_map>, and reorders them according to <new_order> (which contains [value]s of map). (achieved by creating a new table with the same name (and data), making it slow) 
-//If an existing column of the old table is not mentioned in <rename_map>, it will not be copied into the new one. 
-func RenameTableCols(table string, rename_map map[string]string, new_order []string) (error) {
-	if len(new_order) != len(rename_map) { return ErrInvalidData }
-
+//Renames [key]s of <rename_map> to the corresponding [value].new_name, and reorders it according to [value].new_index . (achieved by creating a new table with the same name (and data), making it slow)  
+//Existing columns of the old table not mentioned in <rename_map> will attempt to fill any free indexes, if none are free, they will be placed at the end. 
+//[key]s of <rename_map> which do not exist in the old table will be ignored. 
+func EditTable(table string, rename_map map[string]struct{new_col Db_col; new_index int}) (error) {
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return err }
 
@@ -1497,51 +1623,63 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 	if err != nil { return err }
 	defer db.Close()
 
-	structure, err := structureFromDb(db)
+	old_table, err := tableFromDb(db, tablename)
 	if err != nil { return err }
-	old_table := structure[tablename]
 
-	var ncol_names []string
-	var new_table Db_table
-	for _, n_colname := range new_order {
+	taken_indices := make([]int, len(rename_map))
+	i := 0
+	for _, new := range rename_map {
 		for _, r_col := range reserved_columns {
-			if n_colname == r_col.Name { return ErrIsReserved }
+			if new.new_col.Name == r_col.Name { return ErrIsReserved }
 		}
 
-		for _, org_col := range old_table.Columns{
-			if n_colname == org_col.Name {
-				new_table.Columns = append(new_table.Columns, Db_col{Name: rename_map[org_col.Name], Ext: org_col.Ext})
-				ncol_names = append(ncol_names, rename_map[org_col.Name])
-			}
+		if (new.new_index >= len(old_table)) || (new.new_index < 0){
+			return ErrOutOfRange
 		}
-
-		for _, key := range old_table.Primary_key {
-			if n_colname == rename_map[key] {
-				new_table.Primary_key = append(new_table.Primary_key, n_colname)
-			}
-		}
+		taken_indices[i] = new.new_index
+		i++
 	}
 
-	new_table.Columns = append(new_table.Columns, reserved_columns...)
-	for _, r_col := range reserved_columns {
-		ncol_names = append(ncol_names, r_col.Name)
-	
+	new_table := make([]Db_col, len(old_table))
+	new_names := make([]string, len(old_table))
+	reord_old_names := make([]string, len(old_table))
+	var new_pk []string
+
+	for _, o_col := range old_table {
+
+		new, exists := rename_map[o_col.Name]
+		if exists {
+			new_table[new.new_index] = new.new_col
+			new_names[new.new_index] = new.new_col.Name
+			reord_old_names[new.new_index] = o_col.Name
+			if new.new_col.Pk { new_pk = append(new_pk, new.new_col.Name) }
+		} else {
+			u := 0
+			for ; slices.Contains(taken_indices, u); u++ {}
+			new_table[u] = o_col
+			new_names[u] = o_col.Name
+			reord_old_names[u] = o_col.Name
+			if o_col.Pk { new_pk = append(new_pk, o_col.Name) }
+		}
 	}
 
 	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
-		for _, col := range new_table.Columns {
+		for _, col := range new_table {
 			unf_cr_statement += "'" + col.Name + "' " + col.Ext + ", "
 		}
 		unf_cr_statement = unf_cr_statement[:len(unf_cr_statement) - 2]
 
-		if len(new_table.Primary_key) != 0 {
-			unf_cr_statement += ", PRIMARY KEY('" + strings.Join(new_table.Primary_key, "', '") + "')"
+		if len(new_pk) > 0 {
+			unf_cr_statement += ", PRIMARY KEY('" + strings.Join(new_pk, "', '") + "')"
 		}
 	unf_cr_statement += ");"
 
-	unf_insert_select := "INSERT OR IGNORE INTO '%s' SELECT "
-	unf_insert_select += "'" + strings.Join(ncol_names, "', '") + "' "
-	unf_insert_select += "FROM '%s';"
+	unf_insert_select := "INSERT OR IGNORE INTO '%s' SELECT %s FROM '%s';"
+	
+	//old names because this is used to select from the old table
+	old_insert_select := fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", "'" + strings.Join(reord_old_names, "', '") + "'", tablename) 
+
+	new_insert_select := fmt.Sprintf(unf_insert_select, tablename, "'" + strings.Join(new_names, "', '") + "'", tablename + "_tempbackup")
 
 	tx, err := db.Beginx()
 	if err != nil { return err }
@@ -1549,7 +1687,7 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
 		if err != nil { tx.Rollback(); return err }
 
-		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+		_, err = tx.Exec(old_insert_select)
 		if err != nil { tx.Rollback(); return err }
 
 		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
@@ -1558,7 +1696,7 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 		_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
 		if err != nil { tx.Rollback(); return err }
 
-		_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+		_, err = tx.Exec(new_insert_select)
 		if err != nil { tx.Rollback(); return err }
 
 		_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
@@ -1571,13 +1709,16 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 		alias, _ := NameToAlias(name)
 		tablename = alias + "_" + tablename
 
+		old_insert_select = fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", "'" + strings.Join(reord_old_names, "', '") + "'", tablename) 
+		new_insert_select = fmt.Sprintf(unf_insert_select, tablename, "'" + strings.Join(new_names, "', '") + "'", tablename + "_tempbackup")
+
 		tx, err := Mem.Beginx()
 		if err != nil { return err }
 
 			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "TEMPORARY", tablename + "_tempbackup"))
 			if err != nil { tx.Rollback(); return err }
 
-			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename + "_tempbackup", tablename))
+			_, err = tx.Exec(old_insert_select)
 			if err != nil { tx.Rollback(); return err }
 
 			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
@@ -1586,7 +1727,7 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 			_, err = tx.Exec(fmt.Sprintf(unf_cr_statement, "", tablename))
 			if err != nil { tx.Rollback(); return err }
 
-			_, err = tx.Exec(fmt.Sprintf(unf_insert_select, tablename, tablename + "_tempbackup"))
+			_, err = tx.Exec(new_insert_select)
 			if err != nil { tx.Rollback(); return err }
 
 			_, err = tx.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename + "_tempbackup"))
@@ -1638,7 +1779,7 @@ func CheckSourceStructure(name string, structure Db_structure, equal_tablenames 
 
 //Checks if the schema of <table> is the same as that of <db_table> . 
 //Column names, datatypes, order, and primary key matter (everything). 
-func CheckTableStructure(table string, db_table *Db_table) (bool, error) {
+func CheckTableStructure(table string, db_table []Db_col) (bool, error) {
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return false, err }
 
@@ -1649,12 +1790,13 @@ func CheckTableStructure(table string, db_table *Db_table) (bool, error) {
 	if err != nil { return false, err } 
 	defer db.Close()
 
-	c_table := *db_table
+	c_table := make([]Db_col, len(db_table))
+	copy(c_table, db_table)
 
 	r_col_iter:
 	for _, r_col := range reserved_columns { //check if reserved columns exist
 
-		for _, c_col := range c_table.Columns {
+		for _, c_col := range c_table {
 
 			if r_col.Name == c_col.Name {
 				if r_col.Ext == c_col.Ext {
@@ -1666,16 +1808,13 @@ func CheckTableStructure(table string, db_table *Db_table) (bool, error) {
 			}
 
 		}
-		c_table.Columns = append(c_table.Columns, r_col)
+		c_table = append(c_table, r_col)
 	}
 
-	structure, err := structureFromDb(db) 
+	structure, err := tableFromDb(db, tablename) 
 	if err != nil { return false, err }
 
-	val, ok := structure[tablename]
-	if !ok { return false, ErrUnknownTableName }
-
-	if reflect.DeepEqual(*val, c_table) {
+	if reflect.DeepEqual(structure, c_table) {
 		return  true, nil
 	}
 
