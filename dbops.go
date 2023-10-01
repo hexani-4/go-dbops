@@ -1444,6 +1444,9 @@ func ExtendTable(table string, columns []Db_col) (error) { //TODO: edit
 	}
 	new_table = append(new_table, columns...)
 	new_table = append(new_table, reserved_columns...)
+	for _, r_col := range reserved_columns {
+		new_names = append(new_names, r_col.Name)
+	}
 
 	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
 		for _, col := range new_table {
