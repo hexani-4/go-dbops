@@ -799,7 +799,7 @@ func AddDataSource(path string, alias string) error {
 				} 
 			}
 
-			_, err = db.Exec(fmt.Sprintf("ALTER TABLE 'main'.'%s' ADD COLUMN '%s'", tablename, r_column))
+			_, err = db.Exec(fmt.Sprintf("ALTER TABLE 'main'.'%s' ADD COLUMN '%s'", tablename, r_column.Name + " " + r_column.Ext))
 			if err != nil { return err }
 			table.Columns = append(table.Columns, r_column)
 		}
@@ -1364,7 +1364,7 @@ func ExtendTable(table string, columns []Db_col) (error) {
 	defer db.Close()
 
 	for _, col := range columns {
-		_, err = db.Exec("ALTER TABLE '%s' ADD COLUMN '%s' %s;", tablename, col.Name, col.Ext)
+		_, err = db.Exec(fmt.Sprintf("ALTER TABLE '%s' ADD COLUMN '%s' %s;", tablename, col.Name, col.Ext))
 		if err != nil { return err }
 	}
 
@@ -1372,7 +1372,7 @@ func ExtendTable(table string, columns []Db_col) (error) {
 		alias, _ := NameToAlias(name)
 
 		for _, col := range columns {
-			_, err = Mem.Exec("ALTER TABLE '%s_%s' ADD COLUMN '%s' %s;", alias, tablename, col.Name, col.Ext)
+			_, err = Mem.Exec(fmt.Sprintf("ALTER TABLE '%s_%s' ADD COLUMN '%s' %s;", alias, tablename, col.Name, col.Ext))
 			if err != nil { return err }
 		}
 	}	
@@ -1502,14 +1502,16 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 	old_table := structure[tablename]
 
 	var ncol_names []string
-	var oldcol_names []string
 	var new_table Db_table
 	for _, n_colname := range new_order {
+		for _, r_col := range reserved_columns {
+			if n_colname == r_col.Name { return ErrIsReserved }
+		}
+
 		for _, org_col := range old_table.Columns{
 			if n_colname == org_col.Name {
 				new_table.Columns = append(new_table.Columns, Db_col{Name: rename_map[org_col.Name], Ext: org_col.Ext})
 				ncol_names = append(ncol_names, rename_map[org_col.Name])
-				oldcol_names = append(oldcol_names, org_col.Name)
 			}
 		}
 
@@ -1518,6 +1520,12 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 				new_table.Primary_key = append(new_table.Primary_key, n_colname)
 			}
 		}
+	}
+
+	new_table.Columns = append(new_table.Columns, reserved_columns...)
+	for _, r_col := range reserved_columns {
+		ncol_names = append(ncol_names, r_col.Name)
+	
 	}
 
 	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
@@ -1532,7 +1540,7 @@ func RenameTableCols(table string, rename_map map[string]string, new_order []str
 	unf_cr_statement += ");"
 
 	unf_insert_select := "INSERT OR IGNORE INTO '%s' SELECT "
-	unf_insert_select += "'" + strings.Join(oldcol_names, "', '") + "' "
+	unf_insert_select += "'" + strings.Join(ncol_names, "', '") + "' "
 	unf_insert_select += "FROM '%s';"
 
 	tx, err := db.Beginx()
