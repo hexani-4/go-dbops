@@ -54,8 +54,8 @@ type Db_col struct {
 }
 
 type Db_indexed_col struct {
-	c Db_col //the column
-	i int //the index
+	C Db_col //the column
+	I int //the index
 }
 
 type Db_structure map[string][]Db_col
@@ -1635,13 +1635,13 @@ func EditTable(table string, rename_map map[string]Db_indexed_col) (error) {
 	i := 0
 	for _, new := range rename_map {
 		for _, r_col := range reserved_columns {
-			if new.c.Name == r_col.Name { return ErrIsReserved }
+			if new.C.Name == r_col.Name { return ErrIsReserved }
 		}
 
-		if (new.i >= len(old_table)) || (new.i < 0){
+		if (new.I >= len(old_table)) || (new.I < 0){
 			return ErrOutOfRange
 		}
-		taken_indices[i] = new.i
+		taken_indices[i] = new.I
 		i++
 	}
 
@@ -1654,10 +1654,10 @@ func EditTable(table string, rename_map map[string]Db_indexed_col) (error) {
 
 		new, exists := rename_map[o_col.Name]
 		if exists {
-			new_table[new.i] = new.c
-			new_names[new.i] = new.c.Name
-			reord_old_names[new.i] = o_col.Name
-			if new.c.Pk { new_pk = append(new_pk, new.c.Name) }
+			new_table[new.I] = new.C
+			new_names[new.I] = new.C.Name
+			reord_old_names[new.I] = o_col.Name
+			if new.C.Pk { new_pk = append(new_pk, new.C.Name) }
 		} else {
 			u := 0
 			for ; slices.Contains(taken_indices, u); u++ {}
