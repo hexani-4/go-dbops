@@ -53,6 +53,11 @@ type Db_col struct {
 	Pk bool //Determins if the column is a part of the primary key
 }
 
+type Db_indexed_col struct {
+	c Db_col //the column
+	i int //the index
+}
+
 type Db_structure map[string][]Db_col
 
 type deleteHistItem struct {
@@ -1613,7 +1618,7 @@ func ShortenTable(table string, remove_columns []Db_col) (error) {
 //Renames [key]s of <rename_map> to the corresponding [value].new_name, and reorders it according to [value].new_index . (achieved by creating a new table with the same name (and data), making it slow)  
 //Existing columns of the old table not mentioned in <rename_map> will attempt to fill any free indexes, if none are free, they will be placed at the end. 
 //[key]s of <rename_map> which do not exist in the old table will be ignored. 
-func EditTable(table string, rename_map map[string]struct{new_col Db_col; new_index int}) (error) {
+func EditTable(table string, rename_map map[string]Db_indexed_col) (error) {
 	name, tablename, err := FormatUInputTable(table)
 	if err != nil { return err }
 
@@ -1630,13 +1635,13 @@ func EditTable(table string, rename_map map[string]struct{new_col Db_col; new_in
 	i := 0
 	for _, new := range rename_map {
 		for _, r_col := range reserved_columns {
-			if new.new_col.Name == r_col.Name { return ErrIsReserved }
+			if new.c.Name == r_col.Name { return ErrIsReserved }
 		}
 
-		if (new.new_index >= len(old_table)) || (new.new_index < 0){
+		if (new.i >= len(old_table)) || (new.i < 0){
 			return ErrOutOfRange
 		}
-		taken_indices[i] = new.new_index
+		taken_indices[i] = new.i
 		i++
 	}
 
@@ -1649,10 +1654,10 @@ func EditTable(table string, rename_map map[string]struct{new_col Db_col; new_in
 
 		new, exists := rename_map[o_col.Name]
 		if exists {
-			new_table[new.new_index] = new.new_col
-			new_names[new.new_index] = new.new_col.Name
-			reord_old_names[new.new_index] = o_col.Name
-			if new.new_col.Pk { new_pk = append(new_pk, new.new_col.Name) }
+			new_table[new.i] = new.c
+			new_names[new.i] = new.c.Name
+			reord_old_names[new.i] = o_col.Name
+			if new.c.Pk { new_pk = append(new_pk, new.c.Name) }
 		} else {
 			u := 0
 			for ; slices.Contains(taken_indices, u); u++ {}
