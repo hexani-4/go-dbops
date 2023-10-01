@@ -1425,9 +1425,10 @@ func ExtendTable(table string, columns []Db_col) (error) { //TODO: edit
 	var pk []string
 	var new_table []Db_col
 	var new_names []string
+	col_iter:
 	for _, col := range old_table {
 		for _, r_col := range reserved_columns {
-			if r_col.Name == col.Name { continue }
+			if r_col.Name == col.Name { continue col_iter }
 		}
 		new_names = append(new_names, col.Name)
 		new_table = append(new_table, col)
@@ -1443,7 +1444,6 @@ func ExtendTable(table string, columns []Db_col) (error) { //TODO: edit
 	}
 	new_table = append(new_table, columns...)
 	new_table = append(new_table, reserved_columns...)
-	fmt.Println(new_table)
 
 	unf_cr_statement := "CREATE %s TABLE '%s'(" //modified .tableCreateStatements()
 		for _, col := range new_table {
