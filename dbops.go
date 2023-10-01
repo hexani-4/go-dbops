@@ -1430,9 +1430,9 @@ func ExtendTable(table string, columns []Db_col) (error) { //TODO: edit
 			if r_col.Name == col.Name { continue }
 		}
 		new_names = append(new_names, col.Name)
+		new_table = append(new_table, col)
 		if col.Pk { pk = append(pk, col.Name) }
 	}
-	new_table = append(new_table, old_table...)
 
 	for _, a_col := range columns {
 		for _, r_col := range reserved_columns {
