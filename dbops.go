@@ -1749,6 +1749,23 @@ func EditTable(table string, rename_map map[string]Db_indexed_col) (error) {
 	return nil
 }
 
+//performs DROP TABLE on the table. There is no undo button. 
+func DeleteTable(table string) (error) {
+	name, tablename, err := FormatUInputTable(table)
+	if err != nil { return err }
+
+	path, _ := NameToPath(name)
+
+	db, err := sqlx.Connect("sqlite3", path)
+	if err != nil { return err }
+	defer db.Close()
+
+	_, err = db.Exec(fmt.Sprintf("DROP TABLE '%s';", tablename))
+	if err != nil { return err }
+
+	return nil
+}
+
 //Deletes all of memory (WITHOUT SAVING IT!), setting it back to a nil pointer, and making all operations take place directly on files. 
 //You may run InitMemory() to make a new Intermediary memory after this. 
 //Will return nil (no error) if memory is already closed. 
