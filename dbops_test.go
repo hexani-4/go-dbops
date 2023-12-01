@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"test.com/dbops"
+	"github.com/hexani-4/go-dbops"
 )
 
 //tests that all non-memory functions do what they should in the most basic of cases, this is a sanity check, not meant to show anything

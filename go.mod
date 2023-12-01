@@ -1,4 +1,4 @@
-module test.com/dbops
+module github.com/hexani-4/go-dbops
 
 go 1.21.0
 
