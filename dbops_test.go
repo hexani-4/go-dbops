@@ -2,103 +2,201 @@ package dbops_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
-	"time"
 
-	"github.com/hexani-4/go-dbops"
+	"test.com/dbops"
 )
 
-func TestAddTestDelete(t *testing.T) {
-	db_path := "./test.db"
+//tests that all non-memory functions do what they should in the most basic of cases, this is a sanity check, not meant to show anything
+func TestBasic(t *testing.T) {
 
-	test_structure := dbops.Db_structure{"setďings": []dbops.Db_col{{Name: "key", Ext: "TEXT", Pk: true}, {Name: "value", Ext: "TEXT"}},
-										 "ta bl es ": []dbops.Db_col{{Name: "table name", Ext: "TEXT"}, {Name: "table_columns", Ext: "TEXT"}, {Name: "table_pk", Ext: "TEXT"}},
-  										}
-	test_structure2 := dbops.Db_structure{"test": []dbops.Db_col{{Name: "ey", Ext: "TEXT", Pk: true}, {Name: "uy", Ext: "TEXT"}}}
+	//init
+	var wd, _ = os.Getwd()
+	var db_path = filepath.Join(wd, "test.db")
+	var sec_path = filepath.Join(wd, "secondary.db")
 
-	fmt.Println("CreateDataSource")
-	err := dbops.CreateDataSource(db_path, true)
-	if err != nil { t.Fatalf(err.Error()) }
+	var tts = []dbops.Table{{Name: "te st ", Dd: true, Cols: []dbops.Col{{Name: "a a", Ext: "INTEGER", Pk: true},
+																	 {Name: "b b", Ext: "TEXT",    Pk: true},
+	 																 {Name: "c c", Ext: "REAL",    Pk: false}}},
+								{Name: "šeež¨", Dd: false, Cols: []dbops.Col{{Name: " á ", Ext: "INTEGER", Pk: true}}}}
 
-	fmt.Println("AddDataSource")
-	err = dbops.AddDataSource(db_path, "db")
-	if err != nil { t.Fatalf(err.Error()) }
+	var tdata = [][]any{{int64(0), "0", 0.0}, {int64(1), "1", 1.0}, {int64(2), "2", 2.0}}
 
-	_, _, err = dbops.FormatUInputTable("db.database_log")
-	if err != nil { t.Fatalf(err.Error()) }
+	fmt.Println("sanity check with database at", db_path, "\n    and", sec_path)
+	var src *dbops.DataSrc
+	var err error
+	_, err = os.Stat(db_path)
+	if !os.IsNotExist(err) { os.Remove(db_path) }
+	_, err = os.Stat(sec_path)
+	if !os.IsNotExist(err) { os.Remove(sec_path) }
 
-	fmt.Println("ExtendDataSource")
-	err = dbops.ExtendDataSource("db", test_structure)
-	if err != nil { t.Fatalf(err.Error()) }
-
-	fmt.Println("CheckSourceStructure - strict")
-	result, err := dbops.CheckSourceStructure("db", test_structure, true)
-	if err != nil {
-		t.Fatalf(err.Error())
-	} else if !result {
-		t.Fatalf("expected true, got false")
-	}
-
-	fmt.Println("CheckSourceStructure - not strict")
-	for tablename, table := range test_structure {
-		fmt.Println(tablename, table)
-	}
-	result, err = dbops.CheckSourceStructure("db", test_structure, false)
-	if err != nil {
-		t.Fatalf(err.Error())
-	} else if !result {
-		t.Fatalf("expected true, got false")
-	}
-
-	fmt.Println("CheckTableStructure - for each table")
-	for tablename, table := range test_structure {
-		result, err = dbops.CheckTableStructure("db." + tablename, table)
-		if err != nil {
-			t.Fatalf(err.Error())
-		} else if !result {
-			t.Fatalf("expected true, got false") 
-		}
-	}
-
-	fmt.Println("InsertData")
-	err = dbops.InsertData("db.ta bl es ", "a", "e", "č")
-	if err != nil { t.Fatalf(err.Error()) }
-
-
-	fmt.Println("GetDataByIndex")
-	data, err := dbops.GetDataByIndex("db.ta bl es ", "", 0, -1)
-	fmt.Println(data)
+	//create source
+	src, err = dbops.CreateSrc(db_path, tts) 
 	if err != nil { t.Fatalf(err.Error()) }
 	
+		//check that all tables exist
+		err = checkTables(src, tts)
+		if err != nil { t.Fatalf(err.Error()) }
 
-	time.Sleep(1 * time.Second)
-
-	fmt.Println("RemoveDataSource")
-	err = dbops.RemoveDataSource("db")
+	//disconnect src
+	err = src.Disconnect()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	fmt.Println("AddDataSource")
-	err = dbops.AddDataSource(db_path, "db")
+	//reconnect to src
+	src, err = dbops.ConnectSrc(db_path, true) 
 	if err != nil { t.Fatalf(err.Error()) }
-
-	fmt.Println("ExtendDataSource")
 	
-	err = dbops.ExtendDataSource("db", test_structure2)
+		//recheck that all tables exist
+		err = checkTables(src, tts)
+		if err != nil { t.Fatalf(err.Error()) }
+
+	//remove tts[0]
+	err = src.DelTable(src.GetRtable(tts[0].Name))
 	if err != nil { t.Fatalf(err.Error()) }
 
-	fmt.Println("Load things")
+		//check that it's gone
+		err = checkTables(src, tts[1:])
+		if err != nil { t.Fatalf(err.Error()) }
 
-	fmt.Println("RemoveDataSource")
-	err = dbops.RemoveDataSource("db")
+	//add tts[0]
+	err = src.AddTable(tts[0])
 	if err != nil { t.Fatalf(err.Error()) }
 
-	fmt.Println("AddDataSource")
-	err = dbops.AddDataSource(db_path, "db")
+		//we removed [0] from the left, then added it to the right, meaning the real tables are now in the inverse order
+		slices.Reverse(tts) 
+
+		//check that it exists again
+		err = checkTables(src, tts)
+		if err != nil { t.Fatalf(err.Error()) }
+
+	//make sure release/reclaim works properly
+	src.Release()
+	err = src.Reclaim(false, true)
 	if err != nil { t.Fatalf(err.Error()) }
 
-	time.Sleep(10 * time.Second)
-
-	fmt.Println("DeleteDataSource")
-	err = dbops.DeleteDataSource("db")
+	//get tts[1] as an Rtable (the originally first test table)
+	tbl := src.GetRtable(tts[1].Name)
+	
+	//insert tdata[0] && tdata[1]
+	err = tbl.InsertData(dbops.Conf_abort, append(tdata[0], tdata[1]...)...)
 	if err != nil { t.Fatalf(err.Error()) }
+
+		//check that it got inserted
+		err = checkData(tbl, tdata[:2], false)
+		if err != nil { t.Fatalf(err.Error()) }
+
+	//prepare args for editing the table + add the new column to test data
+	remap := make(map[string]string, len(tts[1].Cols))
+	for _, col := range tts[1].Cols { remap[col.Name] = col.Name }
+
+	tts[1].Cols = append(tts[1].Cols, dbops.Col{Name: "d d", Ext: "INTEGER", Pk: true})
+
+	for i, row := range tdata { tdata[i] = append(row, nil) }
+
+	//edit the table
+	err = tbl.Edit(tts[1].Cols, remap)
+	if err != nil { t.Fatalf(err.Error()) }
+		
+		//check that it was edited properly
+		err = checkData(tbl, tdata[:2], false)
+		if err != nil { t.Fatalf(err.Error()) }
+
+	//dd the first row of test data
+	err = tbl.DeleteData(dbops.Condarr{{Cname: tts[1].Cols[0].Name, Op: dbops.Op_eq, Val: tdata[0][0]}})
+	if err != nil { t.Fatalf(err.Error()) }
+
+		//check that it will not be returned
+		err = checkData(tbl, tdata[1:2], true)
+		if err != nil { t.Fatalf(err.Error()) }
+
+	//undo the deletion of the first row of test data
+	err = tbl.UndoDelete(1) 
+	if err != nil { t.Fatalf(err.Error()) }
+
+		//check that it will be returned again
+		err = checkData(tbl, tdata[:2], false)
+		if err != nil { t.Fatalf(err.Error()) }
+
+
+	nodd_tt := tts[1]
+	nodd_tt.Dd = false
+	//create a dummy database (with only the first table)
+	dest, err := dbops.CreateSrc(sec_path, []dbops.Table{nodd_tt})
+	if err != nil { t.Fatalf(err.Error()) }
+
+	//fetch data from src to the dummy
+	err = dest.FetchAllFrom(src, dbops.Conf_abort, false)
+	if err != nil { t.Fatalf(err.Error()) }
+
+		dtbl := dest.GetRtable(nodd_tt.Name)
+		if dtbl == nil { t.Fatalf("nil destination table") }
+
+		//check that all data in tts[1] of src is now in dummy
+		err = checkData(dtbl, tdata[:2], false)
+		if err != nil { t.Fatalf(err.Error()) }
+
+	//cleanup
+	err = src.Disconnect()
+	if err != nil { t.Fatalf(err.Error()) }
+	err = dest.Disconnect()
+	if err != nil { t.Fatalf(err.Error()) }
+
+	os.Remove(db_path)
+	os.Remove(sec_path)
+}
+
+/*
+All mem funcs
+*/
+
+func checkTables(src *dbops.DataSrc, expected_tables []dbops.Table) error {
+
+	//individually check tablenames, then table structures
+	for _, tt := range expected_tables {
+		if !src.HasTableOfName(tt.Name) { return fmt.Errorf("individual tablename check error ( %s )", tt.Name) }
+
+		if !src.HasTable(tt) { return fmt.Errorf("individual table schema check error ( %s )", tt.Name) }
+
+		//also check rtables (and their conversion to standard ones)
+		if !reflect.DeepEqual(src.GetRtable(tt.Name).ToTable(), tt) { return fmt.Errorf("rtable schema conversion error ( %s )", tt.Name) } 
+	}
+
+	//batch check tablenames, then table structures
+	etns := make([]string, len(expected_tables))
+	for i, et := range expected_tables { etns[i] = et.Name }
+
+	if !reflect.DeepEqual(src.GetTableNames(), etns) { return fmt.Errorf("batch tablename check error") }
+
+	if !reflect.DeepEqual(src.GetTables(), expected_tables) { return fmt.Errorf("batch table schema check error") }
+
+	return nil
+}
+
+func checkData(tbl *dbops.Rtable, expected_data [][]any, nocount bool) error {
+
+	if !nocount {
+		//check table length
+		num := tbl.Count()
+		if num == -1 { return fmt.Errorf("failed to count rows of table ( %s )", tbl.ToTable().Name) }
+		if num != len(expected_data) { fmt.Println("<check data> expected length", len(expected_data), "received", num) ; fmt.Errorf("table row count error ( %s )", tbl.ToTable().Name) }
+	}
+
+	//get the actual data
+	rdata, err := tbl.GetData(0, -1, dbops.Condarr{{Ljoin: true, Lrel: false, Cname: "a a", Op: dbops.Op_neq, Val: 69}}, dbops.Ordarr{{Cname: "a a", Dir: false, Nullwh: false}})
+	if err != nil { return err }
+
+	if len(rdata) != len(expected_data) { return fmt.Errorf("data length error ( %s )", tbl.ToTable().Name) }
+
+	//check actual-expected data equality (row-wise)
+	for i, rrw := range rdata {
+		erw := expected_data[len(expected_data) - i - 1]
+
+		if !slices.Equal(rrw, erw) { fmt.Println("<check data> expected", rrw, "received", erw) ; return fmt.Errorf("data mismatch ( %s | row %d )", tbl.ToTable().Name, i) }
+	}
+
+	return nil
 }
