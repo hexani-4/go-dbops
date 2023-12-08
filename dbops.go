@@ -254,6 +254,7 @@ func (t Table)equal(rt *Rtable) bool {
 
 func (t Table)valid() bool {
 	if t.Name == "" { return false }
+	if (len(t.Cols) == 0) && (!t.Dd) { return false }
 
 	cnameset := make(stringset, len(t.Cols))
 	for _, c := range t.Cols {
@@ -560,10 +561,6 @@ func (t *Rtable)crStatement() (statement string) {
 		coldefs[e] = "\"" + rcol.name + "\" " + rcol.ext
 
 		if rcol.pk { pkdefs = append(pkdefs, "\"" + rcol.name + "\"") }
-	}
-
-	if len(coldefs) == 0 { 
-		return "CREATE TABLE \"" + t.name + "\";"
 	}
 
 	if len(pkdefs) == 0 {
