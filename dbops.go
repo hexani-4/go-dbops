@@ -562,12 +562,16 @@ func (t *Rtable)crStatement() (statement string) {
 		if rcol.pk { pkdefs = append(pkdefs, "\"" + rcol.name + "\"") }
 	}
 
-	if len(pkdefs) == 0 {
-		statement = "CREATE TABLE \"" + t.name + "\"(" + strings.Join(coldefs, ", ") + ");"
-	} else {
-		statement = "CREATE TABLE \"" + t.name + "\"(" + strings.Join(coldefs, ", ") + ", PRIMARY KEY(" + strings.Join(pkdefs, ", ") + "));"
+	if len(coldefs) == 0 { 
+		return "CREATE TABLE \"" + t.name + "\";"
 	}
-	return statement
+
+	if len(pkdefs) == 0 {
+		return "CREATE TABLE \"" + t.name + "\"(" + strings.Join(coldefs, ", ") + ");"
+	} else {
+		return "CREATE TABLE \"" + t.name + "\"(" + strings.Join(coldefs, ", ") + ", PRIMARY KEY(" + strings.Join(pkdefs, ", ") + "));"
+	}
+	 
 }
 
 
