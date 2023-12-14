@@ -1035,7 +1035,7 @@ func (rt *Rtable)CountMem() (num int) {
 
 
 //tries to interpret <data> as {x} rows of <rt>, then insert (or <cbh>) it into <rt>
-func (rt *Rtable)InsertData(cbh conflict_behaviour, data... any) (err error) {
+func (rt *Rtable)InsertData(cbh conflict_behaviour, data []any) (err error) {
 	if !rt.valid() { return ErrInvalidTable }
 
 	<- rt.parent.dlock

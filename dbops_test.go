@@ -82,7 +82,7 @@ func TestBasic(t *testing.T) {
 	tbl := src.GetRtable(tts[1].Name)
 	
 	//insert tdata[0] && tdata[1]
-	err = tbl.InsertData(dbops.Conf_abort, append(tdata[0], tdata[1]...)...)
+	err = tbl.InsertData(dbops.Conf_abort, append(tdata[0], tdata[1]...))
 	if err != nil { t.Fatalf(err.Error()) }
 
 		//check that it got inserted
