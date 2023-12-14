@@ -1066,7 +1066,7 @@ func (rt *Rtable)InsertData(cbh conflict_behaviour, data []any) (err error) {
 }
 
 //tries to interpret <data> as {x} rows of <rt>, then insert (or <cbh>) it into <rt>\"s in-memory version
-func (rt *Rtable)InsertMemData(cbh conflict_behaviour, data... any) (err error) {
+func (rt *Rtable)InsertMemData(cbh conflict_behaviour, data []any) (err error) {
 	if !rt.valid() { return ErrInvalidTable }
 	if rt.parent.mem == nil { return ErrNoMem }
 
