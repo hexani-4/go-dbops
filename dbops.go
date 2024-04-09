@@ -19,14 +19,14 @@ import (
 /*
 MAJOR FOOTGUNS:
  -	 if you have a Rtable of name "test", and a Rtable of name "test_transitionstate", tbl.Edit() (and all of its siblings) will throw an error from sqlx
- -	 don\"t use CreateMem() in async code, could cause a race cond -> error
+ -	 don't use CreateMem() in async code, could cause a race cond -> error
 */
 
 //TODO: missing logging in a bunch of functions, consider removing logging alrogether
 
 const transtate_marker string = "_transitionstate"
 
-var ErrUnknown error = errors.New("ErrUnknown (dbops) - An unspecified error was thrown by something which shouldn\"t throw errors, check what you passed in")
+var ErrUnknown error = errors.New("ErrUnknown (dbops) - An unspecified error was thrown by something which shouldn't throw errors, check what you passed in")
 
 var ErrIsNotDatabase error = errors.New("ErrIsNotDatabase (dbops) - The supplied filepath/file load did not end in .db, check for typo in extension")
 
@@ -39,7 +39,7 @@ var ErrIsDuplicate error = errors.New("ErrIsDuplicate (dbops) - Attempted to cre
 var ErrIsNotPresent error = errors.New("ErrIsNotPresent (dbops) - Attempted to operate on something not present in the target")
 
 var ErrDiffStructure error = errors.New("ErrDiffStructure (dbops) - Attempted to operate on differently structured items with a function which does not resolve dissimilarities")
-var ErrMemSchemaDesync error = errors.New("ErrMemSchemaDesync (dbops) - A data source\"s in-memory database is not of the same schema as its on-disk one")
+var ErrMemSchemaDesync error = errors.New("ErrMemSchemaDesync (dbops) - A data source's in-memory database is not of the same schema as its on-disk one")
 
 var ErrBadData error = errors.New("ErrBadData (dbops) - The requested operation is impossible with the supplied data")
 
@@ -596,7 +596,7 @@ func (src *DataSrc)CreateMem() (err error) {
 	return nil
 }
 
-//tries to insert (or <cbh>) all rows of <src>\"s in-memory database into disk
+//tries to insert (or <cbh>) all rows of <src>'s in-memory database into disk
 func (src *DataSrc)SaveMem(cbh conflict_behaviour) (err error) {
 	if src == nil { return ErrNilSource }
 	if src.mem == nil { return ErrNoMem }
@@ -624,7 +624,7 @@ func (src *DataSrc)SaveMem(cbh conflict_behaviour) (err error) {
 	return nil
 }
 
-//tries to delete <src>\"s in-memory database (without saving)
+//tries to delete <src>'s in-memory database (without saving)
 func (src *DataSrc)DeleteMem() (err error) {
 	if src == nil { return ErrNilSource }
 	if src.mem == nil { return ErrNoMem }
@@ -656,8 +656,8 @@ func (src *DataSrc)Release() (disk *sqlx.DB, mem *sqlx.DB) {
 
 /*
 tries to let other methods of <src> execute as normal (any err -> forced method block stays)
- -	 if <noreload> is false, rechecks <src>\"s schema (seekOwn -> will seek a log table and Dd columns)
-note - calling this is to mean that you are done using <src>\"s exposed database handles
+ -	 if <noreload> is false, rechecks <src>'s schema (seekOwn -> will seek a log table and Dd columns)
+note - calling this is to mean that you are done using <src>'s exposed database handles
 */
 func (src *DataSrc)Reclaim(noreload bool, seekOwn bool) (error) {
 	if src == nil { return ErrNilSource }
@@ -760,7 +760,7 @@ func (dest *DataSrc)FetchAllFrom(src *DataSrc, cbh conflict_behaviour, mustAll b
 	
 	var tocpy []*Rtable
 
-	//skip log table where it is if both don\"t have it
+	//skip log table where it is if both don't have it
 	bothLog := (dest.log && src.log) 
 	var destlogint int
 	var srclogint int
@@ -881,7 +881,7 @@ func (src *DataSrc)HasTableOfName(tablename string) bool {
 	return false
 }
 
-//returns whether <src> has <t> (Dd doesn\"t have to match)
+//returns whether <src> has <t> (Dd doesn't have to match)
 func (src *DataSrc)HasTable(t Table) bool {
 	if src == nil { return false }
 
@@ -901,7 +901,7 @@ func (src *DataSrc)HasTable(t Table) bool {
 func (rt *Rtable)Edit(newcols []Col, remap map[string]string) (error) {
 	if !rt.valid() { return ErrInvalidTable }
 
-	var wg sync.WaitGroup //it\"s possible to do the prep steps + free dlock before mem is actually finished, but it doesn\"t feel right...
+	var wg sync.WaitGroup //it's possible to do the prep steps + free dlock before mem is actually finished, but it doesn't feel right...
 	wg.Add(2)
 		go func() { <- rt.parent.dlock ; wg.Done() }()
 		go func() {	if rt.parent.mem != nil { <- rt.parent.memlock } ; wg.Done() }()
@@ -1017,7 +1017,7 @@ func (rt *Rtable)Count() (num int) {
 	return num
 }
 
-//tries to return the true number of rows (including dd'd) in <rt>\"s in-memory representation (err -> -1) 
+//tries to return the true number of rows (including dd'd) in <rt>'s in-memory representation (err -> -1) 
 func (rt *Rtable)CountMem() (num int) {
 	if !rt.valid() { return -1 }
 	if rt.parent.mem == nil { return -1 }
@@ -1065,7 +1065,7 @@ func (rt *Rtable)InsertData(cbh conflict_behaviour, data []any) (err error) {
 	return nil
 }
 
-//tries to interpret <data> as {x} rows of <rt>, then insert (or <cbh>) it into <rt>\"s in-memory version
+//tries to interpret <data> as {x} rows of <rt>, then insert (or <cbh>) it into <rt>'s in-memory version
 func (rt *Rtable)InsertMemData(cbh conflict_behaviour, data []any) (err error) {
 	if !rt.valid() { return ErrInvalidTable }
 	if rt.parent.mem == nil { return ErrNoMem }
@@ -1223,7 +1223,7 @@ func (rt *Rtable)GetMemData(index int, count int, condarr Condarr, ordarr Ordarr
 }
 
 /*
-tries to load (copy) <rt>\"s items from disk into memory 
+tries to load (copy) <rt>'s items from disk into memory 
  -	 negative <index> indexes from the end of <rt>, instead of the beginning (-1 -> last item)
  -	 negative <count> means how many rows of <rt> to leave out of the selection (-1 -> leave out 0 rows)
  -	 <cbh> is what to do when the copying encounters two rows which cannot exist at once in one table
@@ -1265,7 +1265,7 @@ func (rt *Rtable)LoadIntoMem(index int, count int, cbh conflict_behaviour, conda
 	return nil
 }
 
-//tries to irreversibly remove rows where <condarr> is true from <rt>\"s memory
+//tries to irreversibly remove rows where <condarr> is true from <rt>'s memory
 func (rt *Rtable)UnloadFromMem(condarr Condarr) (err error){
 	if !rt.valid() { return ErrInvalidTable }
 	if rt.parent.mem == nil { return ErrNoMem }
@@ -1281,7 +1281,7 @@ func (rt *Rtable)UnloadFromMem(condarr Condarr) (err error){
 	return nil
 }
 
-//tries to, depending on rt.dd, permanently delete or mark as outdated, rows from where <condarr> is true, both from <rt>\"s memory and disk
+//tries to, depending on rt.dd, permanently delete or mark as outdated, rows from where <condarr> is true, both from <rt>'s memory and disk
 func (rt *Rtable)DeleteData(condarr Condarr) (err error){
 	if !rt.valid() { return ErrInvalidTable }
 
@@ -1306,7 +1306,7 @@ func (rt *Rtable)DeleteData(condarr Condarr) (err error){
 			condarr = append(condarr, Condition{Ljoin: true, Lrel: false, Cname: orgDdCol.name, Op: Op_more, Val: 0}) //also increment any rows where the dd col is >= 0 
 			where, wheresubs := condarr.clausify()
 
-			_, err := db.Exec("UPDATE \"main\".\"" + rt.name + "\" SET \"" + orgDdCol.name + "\" = 1"/*(\"" + orgDdCol.name + "\" + 1)"*/ + where + ";", wheresubs...)
+			_, err := db.Exec("UPDATE \"main\".\"" + rt.name + "\" SET \"" + orgDdCol.name + "\" = 1" + where + ";", wheresubs...)
 			if err != nil { errout <- err ; return }
 		}
 

@@ -78,7 +78,7 @@ func TestBasic(t *testing.T) {
 	err = src.Reclaim(false, true)
 	if err != nil { t.Fatalf(err.Error()) }
 
-	//get tts[1] as an Rtable (the originally first test table)
+	//get tts[1] as an rtable (the originally first test table)
 	tbl := src.GetRtable(tts[1].Name)
 	
 	//insert tdata[0] && tdata[1]
